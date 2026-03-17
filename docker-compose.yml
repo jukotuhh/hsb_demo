@@ -1,0 +1,46 @@
+services:
+  # Streamlit-App (Live-Demo im Hörsaal)
+  streamlit:
+    build: .
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+    environment:
+      - STREAMLIT_SERVER_HEADLESS=true
+
+  # Jupyter Notebook (Handout zum Nacharbeiten)
+  jupyter:
+    build: .
+    ports:
+      - "8888:8888"
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./notebooks:/app/notebooks
+    command: >
+      jupyter notebook
+      --ip=0.0.0.0
+      --port=8888
+      --no-browser
+      --allow-root
+      --NotebookApp.token=demo
+      --notebook-dir=/app/notebooks
+
+  # Challenge-App (Classroom-Challenge)
+  challenge:
+    build: .
+    ports:
+      - "8502:8502"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - STREAMLIT_SERVER_HEADLESS=true
+      - CHALLENGE_ADMIN_SECRET=hsb2026
+      - CHALLENGE_APP_URL=http://localhost:8502
+    command: >
+      streamlit run app/challenge_app.py
+      --server.address 0.0.0.0
+      --server.port 8502
+      --browser.gatherUsageStats false
