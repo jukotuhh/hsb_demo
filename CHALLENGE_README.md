@@ -96,7 +96,7 @@ streamlit run app/challenge_app.py --server.port $PORT --server.address 0.0.0.0
 
 ### 5. Deployment
 
-Railway deployed automatisch bei jedem Push zu `main`. Die App ist dann unter einer URL wie:
+Railway deployed automatisch bei jedem Push zum konfigurierten Deploy-Branch. Die App ist dann unter einer URL wie:
 
 ```
 https://hsb-demo-production.up.railway.app

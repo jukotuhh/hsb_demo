@@ -491,8 +491,13 @@ if team_id:
     st.subheader(f"Team: **{team['name']}**")
     st.markdown("---")
     
-    # Auto-Refresh in Warte-Phasen
-    if current_phase in ["registration", "training"] and HAS_AUTOREFRESH:
+    # Auto-Refresh in Warte-Phasen.
+    # Nach dem Absenden sollen Teams den Phasenwechsel ebenfalls ohne manuelles Reload sehen.
+    should_team_autorefresh = (
+        current_phase in ["registration", "training"]
+        or (current_phase == "feature_selection" and team["submitted"])
+    )
+    if should_team_autorefresh and HAS_AUTOREFRESH:
         st_autorefresh(interval=3000, key="team_refresh")
     
     # ======== Phase: Registrierung (Warten) ========
@@ -687,25 +692,30 @@ if current_phase != "registration":
 # Registrierungs-Formular
 st.markdown("### 📝 Teamname eingeben")
 
-team_name_input = st.text_input(
-    "Teamname (2-30 Zeichen):",
-    max_chars=30,
-    placeholder="z.B. Team Alpha",
-)
+# Ein Formular übergibt Eingabewert und Submit atomar.
+# Das macht die Registrierung robuster als eine lose text_input/button-Kombination.
+with st.form("registration_form", clear_on_submit=False):
+    team_name_input = st.text_input(
+        "Teamname (2-30 Zeichen):",
+        max_chars=30,
+        placeholder="z.B. Team Alpha",
+    )
+    submitted = st.form_submit_button("🚀 Team beitreten", type="primary", use_container_width=True)
 
-if st.button("🚀 Team beitreten", type="primary", use_container_width=True):
+if submitted:
     if len(team_name_input.strip()) < 2:
         st.error("❌ Teamname muss mindestens 2 Zeichen lang sein.")
     else:
         try:
-            new_team_id = challenge_state.register_team(team_name_input)
-            st.success(f"✅ Team '{team_name_input}' erfolgreich registriert!")
+            cleaned_name = team_name_input.strip()
+            new_team_id = challenge_state.register_team(cleaned_name)
+            st.success(f"✅ Team '{cleaned_name}' erfolgreich registriert!")
             time.sleep(1)
-            
+
             # Redirect zur Team-Ansicht
             st.query_params["team"] = new_team_id
             st.rerun()
-        
+
         except ValueError as e:
             st.error(f"❌ {e}")
 
