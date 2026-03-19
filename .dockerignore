@@ -4,3 +4,11 @@ __pycache__
 .venv
 *.egg-info
 .ipynb_checkpoints
+notebooks/
+models/
+data/archive.zip
+data/archive/CWRU_48k_load_1_CNN_data.npz
+data/challenge_state.json
+.vscode/
+.idea/
+*.log

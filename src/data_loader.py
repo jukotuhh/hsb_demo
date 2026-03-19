@@ -293,6 +293,7 @@ def generate_demo_data(
     n_per_class: int = 500,
     segment_length: int = 1024,
     noise_level: float = 0.3,
+    normalize: bool = True,
     random_state: int = 42,
 ) -> dict:
     """
@@ -377,8 +378,9 @@ def generate_demo_data(
     X = np.array(segments, dtype=np.float32)
     y = np.array(labels, dtype=np.int32)
 
-    # Normalisieren
-    X = normalize_segments(X)
+    # Optional normalisieren
+    if normalize:
+        X = normalize_segments(X)
 
     # Split
     X_train, X_test, y_train, y_test = train_test_split(

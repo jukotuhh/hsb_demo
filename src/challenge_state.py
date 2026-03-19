@@ -311,6 +311,82 @@ def run_all_trainings(X_train, y_train, X_test, y_test, progress_callback=None):
     print(f"\n✓ Training abgeschlossen für {len(teams_to_train)} Teams.")
 
 
+def run_team_training(team_id: str, X_train, y_train, X_test, y_test) -> dict:
+    """
+    Trainiert ein einzelnes Team-Modell anhand der bereits abgegebenen Features.
+
+    Parameter:
+        team_id: Team-ID
+        X_train, y_train: Trainingsdaten
+        X_test, y_test: Testdaten
+
+    Returns:
+        Ergebnis-Dictionary des trainierten Teams.
+
+    Raises:
+        ValueError: Wenn Team nicht existiert oder noch keine Features abgegeben hat.
+    """
+    with _STATE_LOCK:
+        team = _STATE["teams"].get(team_id)
+        if team is None:
+            raise ValueError(f"Team-ID nicht gefunden: {team_id}")
+        if not team["submitted"] or team["selected_features"] is None:
+            raise ValueError(f"Team '{team['name']}' hat noch keine gueltige Feature-Auswahl abgegeben.")
+        team_name = team["name"]
+        features = list(team["selected_features"])
+
+    print(f"\n🚀 Trainiere Team {team_name} mit Features: {features}")
+
+    try:
+        # Features extrahieren
+        X_train_feat = extract_selected_features(X_train, features)
+        X_test_feat = extract_selected_features(X_test, features)
+
+        # Training
+        train_result = train_classical(
+            X_train_feat.values,
+            y_train,
+            n_estimators=100,
+            max_depth=None,
+            random_state=42,
+        )
+
+        # Evaluation
+        eval_result = evaluate_classical(
+            train_result["model"],
+            X_test_feat,
+            y_test,
+            class_names=CLASS_NAMES,
+        )
+
+        result_payload = {
+            "f1_macro": eval_result["f1_macro"],
+            "accuracy": eval_result["accuracy"],
+            "confusion_matrix": eval_result["confusion_matrix"],
+            "feature_importances": eval_result["feature_importances"],
+            "feature_names": eval_result["feature_names"],
+            "train_time": train_result["train_time"],
+        }
+        print(f"  ✓ F1={eval_result['f1_macro']:.4f}, Acc={eval_result['accuracy']:.4f}")
+
+    except Exception as e:
+        print(f"  ⚠ Fehler beim Training von {team_name}: {e}")
+        result_payload = {
+            "f1_macro": 0.0,
+            "accuracy": 0.0,
+            "confusion_matrix": np.zeros((4, 4)),
+            "feature_importances": np.zeros(4),
+            "feature_names": features,
+            "train_time": 0.0,
+            "error": str(e),
+        }
+
+    with _STATE_LOCK:
+        _STATE["results"][team_id] = result_payload
+        _save_state_to_disk()
+        return dict(_STATE["results"][team_id])
+
+
 def train_optimal_model(X_train, y_train, X_test, y_test):
     """
     Trainiert ein Modell mit ALLEN 12 Features als Benchmark.
@@ -378,6 +454,7 @@ def get_leaderboard() -> list[dict]:
                 "f1_macro": result["f1_macro"],
                 "accuracy": result["accuracy"],
                 "train_time": result["train_time"],
+                "features": team.get("selected_features") or [],
             })
     
     # Sortieren: F1 absteigend, bei Gleichstand Accuracy absteigend

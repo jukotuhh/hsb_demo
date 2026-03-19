@@ -1,390 +1,884 @@
 """
-ui_theme.py — UI Theme & Design Tokens für die Bearing Challenge
-================================================================
-
-Dieses Modul definiert das visuelle Erscheinungsbild der Challenge-App,
-basierend auf dem öffentlich sichtbaren HSB-Webauftritt (web-inspiriert).
-
-Design-Prinzipien:
-    - HSB-Identität: seriös, technisch, klar, akademisch
-    - Funktionalität vor Dekoration
-    - Dualer Kontext: Smartphone (Studierende) + Beamer (Dozent)
-    - Barrierefreiheit: Kontraste, lesbare Schriftgrößen
+ui_theme.py — UI theme and layout helpers for the Bearing Challenge.
 """
+
+from html import escape
 
 import streamlit as st
 
 
-# ============================================================
-# Farbpalette (HSB-inspiriert)
-# ============================================================
+HSB_PRIMARY = "#005B96"
+HSB_PRIMARY_LIGHT = "#0077C8"
+HSB_PRIMARY_DARK = "#003D66"
 
-# Primärfarben (basierend auf HSB-Website)
-HSB_PRIMARY = "#005B96"          # Hauptfarbe: Buttons, Akzente
-HSB_PRIMARY_LIGHT = "#0077C8"    # Hover-Zustände, Links
-HSB_PRIMARY_DARK = "#003D66"     # Aktive/Gedrückte Zustände
+HSB_NEUTRAL_50 = "#F8F9FA"
+HSB_NEUTRAL_100 = "#EEF2F5"
+HSB_NEUTRAL_200 = "#D8E0E8"
+HSB_NEUTRAL_300 = "#C5CED8"
+HSB_NEUTRAL_700 = "#495057"
+HSB_NEUTRAL_900 = "#212529"
 
-# Neutrale Farben
-HSB_NEUTRAL_50 = "#F8F9FA"       # Hintergrund (hell)
-HSB_NEUTRAL_100 = "#E9ECEF"      # Kartenhintergründe
-HSB_NEUTRAL_200 = "#DEE2E6"      # Borders, Divider
-HSB_NEUTRAL_700 = "#495057"      # Sekundärtext
-HSB_NEUTRAL_900 = "#212529"      # Primärtext
+COLOR_SUCCESS = "#2F7D4A"
+COLOR_WARNING = "#B88119"
+COLOR_ERROR = "#A13A38"
+COLOR_INFO = "#2A6F97"
 
-# Funktionsfarben
-COLOR_SUCCESS = "#28A745"        # Erfolg
-COLOR_WARNING = "#FFC107"        # Warnung
-COLOR_ERROR = "#DC3545"          # Fehler
-COLOR_INFO = "#17A2B8"           # Info
+RANK_GOLD = "#D1A93A"
+RANK_SILVER = "#9DA7B0"
+RANK_BRONZE = "#A66A3F"
 
-# Leaderboard-Farben
-RANK_GOLD = "#FFD700"
-RANK_SILVER = "#C0C0C0"
-RANK_BRONZE = "#CD7F32"
-
-# Chart-Farben (Klassen)
 CHART_COLORS = {
-    "Normal": COLOR_SUCCESS,          # Grün — gesunder Zustand
-    "Innenring (IR)": COLOR_ERROR,    # Rot — kritischer Fehler
-    "Außenring (OR)": HSB_PRIMARY,    # HSB-Blau — mittlerer Fehler
-    "Kugel (B)": COLOR_WARNING,       # Gelb — variabler Fehler
+    "Normal": COLOR_SUCCESS,
+    "Innenring (IR)": COLOR_ERROR,
+    "Außenring (OR)": HSB_PRIMARY,
+    "Kugel (B)": "#B88119",
 }
 
-CHART_PRIMARY = HSB_PRIMARY
-CHART_SECONDARY = HSB_PRIMARY_LIGHT
-CHART_HIGHLIGHT = COLOR_SUCCESS
-
-
-# ============================================================
-# Spacing & Layout (8px-Grid)
-# ============================================================
-
-SPACE_XS = "4px"
-SPACE_SM = "8px"
-SPACE_MD = "16px"
-SPACE_LG = "24px"
-SPACE_XL = "32px"
-SPACE_XXL = "48px"
-
-RADIUS_SM = "4px"
-RADIUS_MD = "8px"
-RADIUS_LG = "12px"
-
-
-# ============================================================
-# Plotly Layout-Template
-# ============================================================
-
 PLOTLY_LAYOUT = {
-    "plot_bgcolor": HSB_NEUTRAL_50,
+    "template": "plotly_white",
+    "plot_bgcolor": "white",
     "paper_bgcolor": "white",
     "font": {"family": "sans-serif", "size": 14, "color": HSB_NEUTRAL_900},
-    "xaxis": {"gridcolor": HSB_NEUTRAL_200},
-    "yaxis": {"gridcolor": HSB_NEUTRAL_200},
+    "title": {"font": {"color": HSB_NEUTRAL_900}},
+    "legend": {"font": {"color": HSB_NEUTRAL_900}, "title": {"font": {"color": HSB_NEUTRAL_900}}},
+    "xaxis": {"gridcolor": HSB_NEUTRAL_200, "zerolinecolor": HSB_NEUTRAL_200},
+    "yaxis": {"gridcolor": HSB_NEUTRAL_200, "zerolinecolor": HSB_NEUTRAL_200},
+    "margin": {"l": 40, "r": 20, "t": 50, "b": 40},
 }
 
 
 def get_plotly_layout(**kwargs):
-    """
-    Gibt ein Plotly-Layout-Dict mit HSB-Theme zurück.
-    
-    Beispiel:
-        fig.update_layout(**get_plotly_layout(title="Mein Chart", height=400))
-    """
     layout = PLOTLY_LAYOUT.copy()
+    base_xaxis = {
+        **PLOTLY_LAYOUT["xaxis"],
+        "title": {"font": {"color": HSB_NEUTRAL_900}},
+        "tickfont": {"color": HSB_NEUTRAL_900},
+    }
+    base_yaxis = {
+        **PLOTLY_LAYOUT["yaxis"],
+        "title": {"font": {"color": HSB_NEUTRAL_900}},
+        "tickfont": {"color": HSB_NEUTRAL_900},
+    }
+    layout["xaxis"] = base_xaxis
+    layout["yaxis"] = base_yaxis
+
+    custom_xaxis = kwargs.pop("xaxis", None)
+    custom_yaxis = kwargs.pop("yaxis", None)
     layout.update(kwargs)
+    if custom_xaxis is not None:
+        layout["xaxis"] = {**base_xaxis, **custom_xaxis}
+    if custom_yaxis is not None:
+        layout["yaxis"] = {**base_yaxis, **custom_yaxis}
     return layout
 
 
 def get_class_color(class_name: str) -> str:
-    """Gibt die Farbe für eine Fehlerklasse zurück."""
     return CHART_COLORS.get(class_name, HSB_PRIMARY)
 
 
 def get_rank_color(rank: int) -> str:
-    """Gibt die Farbe für einen Leaderboard-Rang zurück."""
     if rank == 1:
         return RANK_GOLD
-    elif rank == 2:
+    if rank == 2:
         return RANK_SILVER
-    elif rank == 3:
+    if rank == 3:
         return RANK_BRONZE
-    else:
-        return HSB_NEUTRAL_100
+    return HSB_NEUTRAL_100
 
-
-# ============================================================
-# Custom CSS
-# ============================================================
 
 CUSTOM_CSS = f"""
 <style>
-/* ============================================================
-   Allgemein
-   ============================================================ */
+:root {{
+    --hsb-primary: {HSB_PRIMARY};
+    --hsb-primary-light: {HSB_PRIMARY_LIGHT};
+    --hsb-primary-dark: {HSB_PRIMARY_DARK};
+    --hsb-neutral-50: {HSB_NEUTRAL_50};
+    --hsb-neutral-100: {HSB_NEUTRAL_100};
+    --hsb-neutral-200: {HSB_NEUTRAL_200};
+    --hsb-neutral-300: {HSB_NEUTRAL_300};
+    --hsb-neutral-700: {HSB_NEUTRAL_700};
+    --hsb-neutral-900: {HSB_NEUTRAL_900};
+    --hsb-success: {COLOR_SUCCESS};
+    --hsb-warning: {COLOR_WARNING};
+    --hsb-error: {COLOR_ERROR};
+    --hsb-info: {COLOR_INFO};
+    /* Streamlit design tokens */
+    --primary-color: {HSB_PRIMARY};
+}}
 
-/* Entferne überschüssige Padding */
+.stApp {{
+    background:
+        linear-gradient(180deg, #f3f6f8 0%, #ffffff 280px),
+        linear-gradient(90deg, rgba(0,91,150,0.03) 0%, rgba(255,255,255,0) 50%);
+}}
+
 .block-container {{
-    padding-top: 2rem;
+    /* Reserve space for Streamlit's top toolbar ("Deploy" bar). */
+    padding-top: 4.5rem;
     padding-bottom: 2rem;
+    max-width: 1240px;
 }}
 
-/* ============================================================
-   Feature-Karten
-   ============================================================ */
-
-.feature-card {{
-    border: 1px solid {HSB_NEUTRAL_200};
-    border-radius: {RADIUS_MD};
-    padding: {SPACE_MD};
-    background-color: {HSB_NEUTRAL_50};
-    transition: all 0.2s ease;
-    margin-bottom: {SPACE_MD};
+h1, h2, h3, h4 {{
+    color: var(--hsb-neutral-900);
+    letter-spacing: -0.02em;
 }}
 
-.feature-card:hover {{
-    box-shadow: 0 4px 8px rgba(0, 91, 150, 0.1);
-    transform: translateY(-2px);
+p, li, label, [data-testid="stMarkdownContainer"] {{
+    color: var(--hsb-neutral-900);
 }}
 
-.feature-card.selected {{
-    border: 2px solid {HSB_PRIMARY};
-    background-color: rgba(0, 119, 200, 0.05);
+.hsb-site-header {{
+    margin-bottom: 1.5rem;
 }}
 
-.feature-card.locked {{
-    opacity: 0.6;
-    cursor: not-allowed;
+.hsb-utility-bar {{
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.55rem 1rem;
+    border-radius: 14px 14px 0 0;
+    background: var(--hsb-primary-dark);
+    color: white;
+    font-size: 0.82rem;
 }}
 
-/* ============================================================
-   Status-Badges
-   ============================================================ */
-
-.badge {{
-    display: inline-block;
-    padding: 4px 12px;
-    border-radius: {RADIUS_SM};
-    font-size: 0.875rem;
-    font-weight: 600;
+.hsb-utility-brand,
+.hsb-utility-context {{
+    font-weight: 700;
+    letter-spacing: 0.03em;
 }}
 
-.badge-pending {{
-    background-color: rgba(255, 193, 7, 0.2);
-    color: #856404;
+.page-header {{
+    display: grid;
+    grid-template-columns: minmax(0, 1.8fr) minmax(240px, 0.9fr);
+    gap: 1.25rem;
+    padding: 1.8rem 1.9rem;
+    border: 1px solid var(--hsb-neutral-200);
+    border-top: 0;
+    border-radius: 0 0 18px 18px;
+    background:
+        linear-gradient(135deg, rgba(0,91,150,0.06), rgba(255,255,255,0.98) 42%),
+        white;
+    margin-bottom: 1.25rem;
 }}
 
-.badge-submitted {{
-    background-color: rgba(40, 167, 69, 0.2);
-    color: #155724;
+.page-header.public {{
+    background:
+        linear-gradient(135deg, rgba(0,91,150,0.05), rgba(255,255,255,0.99) 45%),
+        white;
 }}
 
-.badge-locked {{
-    background-color: {HSB_NEUTRAL_200};
-    color: {HSB_NEUTRAL_700};
+.page-header.team {{
+    background:
+        linear-gradient(135deg, rgba(0,119,200,0.08), rgba(255,255,255,0.99) 45%),
+        white;
 }}
 
-/* ============================================================
-   Leaderboard
-   ============================================================ */
-
-.leaderboard-row {{
-    padding: {SPACE_MD};
-    border-radius: {RADIUS_MD};
-    margin-bottom: {SPACE_SM};
+.page-header.admin {{
+    background:
+        linear-gradient(135deg, rgba(0,61,102,0.18), rgba(255,255,255,0.99) 48%),
+        white;
 }}
 
-.rank-1 {{
-    background-color: rgba(255, 215, 0, 0.1);
-    border-left: 4px solid {RANK_GOLD};
+.page-header-main {{
+    min-width: 0;
 }}
 
-.rank-2 {{
-    background-color: rgba(192, 192, 192, 0.1);
-    border-left: 4px solid {RANK_SILVER};
+.page-header-side {{
+    border-left: 1px solid var(--hsb-neutral-200);
+    padding-left: 1rem;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 0.9rem;
 }}
 
-.rank-3 {{
-    background-color: rgba(205, 127, 50, 0.1);
-    border-left: 4px solid {RANK_BRONZE};
+.page-header.single-column {{
+    grid-template-columns: 1fr;
 }}
 
-/* ============================================================
-   QR-Code Container
-   ============================================================ */
-
-.qr-container {{
-    background-color: white;
-    padding: {SPACE_LG};
-    border-radius: {RADIUS_LG};
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-    text-align: center;
+.page-header.single-column .page-header-side {{
+    display: none;
 }}
 
-/* ============================================================
-   Responsive: Mobile
-   ============================================================ */
-
-@media (max-width: 768px) {{
-    /* Feature-Karten: volle Breite auf Mobile */
-    [data-testid="stHorizontalBlock"] {{
-        flex-direction: column;
-    }}
-    
-    .feature-card {{
-        width: 100% !important;
-    }}
-    
-    /* Reduzierte Schriftgröße auf Mobile */
-    h1 {{
-        font-size: 1.75rem !important;
-    }}
-    
-    h2 {{
-        font-size: 1.5rem !important;
-    }}
-}}
-
-/* ============================================================
-   Responsive: Beamer (große Schrift)
-   ============================================================ */
-
-@media (min-width: 1400px) {{
-    /* Größere Metriken für Beamer */
-    [data-testid="stMetricValue"] {{
-        font-size: 3rem !important;
-    }}
-    
-    h1 {{
-        font-size: 3rem !important;
-    }}
-    
-    h2 {{
-        font-size: 2.5rem !important;
-    }}
-    
-    /* Größere Tabellenschrift */
-    table {{
-        font-size: 1.25rem !important;
-    }}
-}}
-
-/* ============================================================
-   Phase-Badge (Admin)
-   ============================================================ */
-
-.phase-badge {{
-    display: inline-block;
-    padding: 8px 20px;
-    border-radius: {RADIUS_MD};
-    font-size: 1.25rem;
+.page-eyebrow {{
+    color: var(--hsb-primary);
+    font-size: 0.78rem;
     font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 1px;
+    letter-spacing: 0.08em;
+    margin-bottom: 0.55rem;
 }}
 
-.phase-registration {{
-    background-color: rgba(23, 162, 184, 0.2);
-    color: #0c5460;
+.page-title {{
+    font-size: 2.15rem;
+    font-weight: 700;
+    line-height: 1.1;
+    margin: 0;
 }}
 
-.phase-feature-selection {{
-    background-color: rgba(255, 193, 7, 0.2);
-    color: #856404;
+.page-subtitle {{
+    margin-top: 0.65rem;
+    color: var(--hsb-neutral-700);
+    font-size: 1rem;
+    line-height: 1.55;
+    max-width: 70ch;
 }}
 
-.phase-training {{
-    background-color: rgba(0, 91, 150, 0.2);
-    color: {HSB_PRIMARY_DARK};
+.page-tagline {{
+    margin-top: 0.75rem;
+    font-size: 0.96rem;
+    font-weight: 700;
+    color: var(--hsb-primary-dark);
 }}
 
-.phase-results {{
-    background-color: rgba(40, 167, 69, 0.2);
-    color: #155724;
+.page-side-label {{
+    color: var(--hsb-neutral-700);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-size: 0.74rem;
+    font-weight: 700;
 }}
 
-/* ============================================================
-   Buttons (Streamlit Override)
-   ============================================================ */
+.page-side-title {{
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--hsb-neutral-900);
+}}
+
+.page-side-copy {{
+    color: var(--hsb-neutral-700);
+    line-height: 1.5;
+    font-size: 0.92rem;
+}}
+
+.page-side-list {{
+    display: grid;
+    gap: 0.45rem;
+}}
+
+.page-side-item {{
+    padding: 0.55rem 0.65rem;
+    border-radius: 12px;
+    background: rgba(255,255,255,0.82);
+    border: 1px solid var(--hsb-neutral-200);
+}}
+
+.registration-form-shell {{
+    border: 1px solid var(--hsb-neutral-200);
+    border-radius: 18px;
+    background: white;
+    padding: 1.1rem 1.15rem 0.25rem;
+    box-shadow: 0 10px 26px rgba(33, 37, 41, 0.05);
+    margin-bottom: 1rem;
+}}
+
+.registration-form-title {{
+    font-size: 1.08rem;
+    font-weight: 700;
+    margin-bottom: 0.3rem;
+}}
+
+.registration-form-copy {{
+    color: var(--hsb-neutral-700);
+    line-height: 1.5;
+    margin-bottom: 0.85rem;
+}}
+
+.section-heading {{
+    margin: 1.25rem 0 0.75rem;
+}}
+
+.section-heading-title {{
+    font-size: 1.15rem;
+    font-weight: 700;
+    margin: 0;
+}}
+
+.section-heading-subtitle {{
+    color: var(--hsb-neutral-700);
+    margin-top: 0.25rem;
+    font-size: 0.95rem;
+}}
+
+.ui-panel {{
+    border: 1px solid var(--hsb-neutral-200);
+    border-radius: 14px;
+    background: white;
+    padding: 1rem 1.1rem;
+    margin-bottom: 1rem;
+    box-shadow: 0 8px 24px rgba(33, 37, 41, 0.04);
+}}
+
+.ui-panel-accent {{
+    border-color: rgba(0, 91, 150, 0.25);
+    background: linear-gradient(180deg, rgba(0,91,150,0.04), rgba(255,255,255,1));
+}}
+
+.ui-panel-muted {{
+    background: var(--hsb-neutral-50);
+}}
+
+.ui-panel-success {{
+    border-color: rgba(47, 125, 74, 0.3);
+    background: linear-gradient(180deg, rgba(47,125,74,0.06), rgba(255,255,255,1));
+}}
+
+.ui-panel-warning {{
+    border-color: rgba(184, 129, 25, 0.28);
+    background: linear-gradient(180deg, rgba(184,129,25,0.08), rgba(255,255,255,1));
+}}
+
+.ui-panel-danger {{
+    border-color: rgba(161, 58, 56, 0.28);
+    background: linear-gradient(180deg, rgba(161,58,56,0.07), rgba(255,255,255,1));
+}}
+
+.ui-panel-title {{
+    margin: 0 0 0.45rem;
+    font-size: 1rem;
+    font-weight: 700;
+}}
+
+.ui-panel-copy {{
+    color: var(--hsb-neutral-700);
+    margin: 0;
+    line-height: 1.55;
+}}
+
+.ui-metric-grid {{
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 0.85rem;
+    margin: 0.75rem 0 1rem;
+}}
+
+.ui-metric-card {{
+    border: 1px solid var(--hsb-neutral-200);
+    border-radius: 12px;
+    background: white;
+    padding: 0.95rem 1rem;
+}}
+
+.ui-metric-value {{
+    font-size: 1.55rem;
+    font-weight: 700;
+    color: var(--hsb-primary-dark);
+    line-height: 1.1;
+}}
+
+.ui-metric-label {{
+    margin-top: 0.25rem;
+    font-size: 0.88rem;
+    color: var(--hsb-neutral-700);
+}}
+
+.ui-badge {{
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.28rem 0.65rem;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    font-weight: 700;
+    border: 1px solid transparent;
+}}
+
+.ui-badge-phase {{
+    background: rgba(0, 91, 150, 0.08);
+    color: var(--hsb-primary-dark);
+    border-color: rgba(0, 91, 150, 0.14);
+}}
+
+.ui-badge-pending {{
+    background: rgba(184,129,25,0.12);
+    color: #7a5410;
+    border-color: rgba(184,129,25,0.2);
+}}
+
+.ui-badge-submitted {{
+    background: rgba(47,125,74,0.12);
+    color: #245f38;
+    border-color: rgba(47,125,74,0.2);
+}}
+
+.ui-tag-list {{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+    margin-top: 0.5rem;
+}}
+
+.ui-tag {{
+    display: inline-block;
+    padding: 0.32rem 0.6rem;
+    border-radius: 999px;
+    background: var(--hsb-neutral-50);
+    border: 1px solid var(--hsb-neutral-200);
+    color: var(--hsb-neutral-900);
+    font-size: 0.82rem;
+}}
+
+.ui-tag-accent {{
+    background: rgba(0, 119, 200, 0.08);
+    border-color: rgba(0, 119, 200, 0.18);
+}}
+
+.feature-card-shell {{
+    margin-bottom: 0.6rem;
+}}
+
+.feature-card-heading {{
+    margin-bottom: 0.4rem;
+}}
+
+.feature-card-domain {{
+    display: inline-block;
+    margin-bottom: 0.35rem;
+    color: var(--hsb-primary);
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}}
+
+.feature-card-title {{
+    font-size: 1rem;
+    font-weight: 700;
+    margin-bottom: 0.3rem;
+}}
+
+.feature-card-copy {{
+    color: var(--hsb-neutral-700);
+    font-size: 0.92rem;
+    line-height: 1.45;
+}}
+
+.leaderboard-list {{
+    display: grid;
+    gap: 0.75rem;
+    margin-top: 0.6rem;
+}}
+
+.leaderboard-row {{
+    display: grid;
+    grid-template-columns: 68px minmax(140px, 1.4fr) minmax(90px, 110px) minmax(90px, 110px) minmax(90px, 110px);
+    gap: 0.8rem;
+    align-items: center;
+    border: 1px solid var(--hsb-neutral-200);
+    border-radius: 14px;
+    padding: 0.95rem 1rem;
+    background: white;
+}}
+
+.leaderboard-row.top-1 {{
+    border-color: rgba(209, 169, 58, 0.4);
+    background: rgba(209, 169, 58, 0.08);
+}}
+
+.leaderboard-row.top-2 {{
+    border-color: rgba(157, 167, 176, 0.45);
+    background: rgba(157, 167, 176, 0.09);
+}}
+
+.leaderboard-row.top-3 {{
+    border-color: rgba(166, 106, 63, 0.4);
+    background: rgba(166, 106, 63, 0.08);
+}}
+
+.leaderboard-rank {{
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--hsb-primary-dark);
+}}
+
+.leaderboard-team {{
+    font-weight: 700;
+    color: var(--hsb-neutral-900);
+}}
+
+.leaderboard-meta-label {{
+    font-size: 0.74rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--hsb-neutral-700);
+}}
+
+.leaderboard-meta-value {{
+    font-size: 0.98rem;
+    font-weight: 700;
+    color: var(--hsb-neutral-900);
+}}
+
+.state-card {{
+    text-align: center;
+    padding: 1.5rem 1.2rem;
+}}
+
+.state-card-title {{
+    font-size: 1.1rem;
+    font-weight: 700;
+    margin-bottom: 0.45rem;
+}}
+
+.state-card-copy {{
+    color: var(--hsb-neutral-700);
+    line-height: 1.55;
+    margin-bottom: 0.9rem;
+}}
 
 .stButton > button {{
-    border-radius: {RADIUS_MD};
-    font-weight: 600;
-    transition: all 0.2s ease;
+    border-radius: 12px;
+    min-height: 2.8rem;
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+    color: var(--hsb-neutral-900) !important;
+    -webkit-text-fill-color: var(--hsb-neutral-900) !important;
+    font-weight: 700;
+    border: 1px solid rgba(0,91,150,0.16);
 }}
 
 .stButton > button:hover {{
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0, 91, 150, 0.2);
+    background: var(--hsb-neutral-50) !important;
+    background-color: var(--hsb-neutral-50) !important;
+    color: var(--hsb-neutral-900) !important;
+    -webkit-text-fill-color: var(--hsb-neutral-900) !important;
+    border-color: rgba(0,91,150,0.35);
+    box-shadow: 0 10px 22px rgba(0, 91, 150, 0.10);
 }}
 
-/* ============================================================
-   Expander (Akkordeons)
-   ============================================================ */
+.stFormSubmitButton > button {{
+    border-radius: 14px;
+    min-height: 3rem;
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+    color: var(--hsb-neutral-900) !important;
+    -webkit-text-fill-color: var(--hsb-neutral-900) !important;
+    font-weight: 700;
+}}
 
-.streamlit-expanderHeader {{
-    background-color: {HSB_NEUTRAL_50};
-    border-radius: {RADIUS_MD};
+/* Primary actions (e.g. "Team beitreten") in HSB blue instead of default red */
+.stButton > button[kind="primary"],
+.stFormSubmitButton > button[kind="primary"],
+div[data-testid="stFormSubmitButton"] button,
+button[kind="primaryFormSubmit"] {{
+    background: var(--hsb-primary) !important;
+    background-color: var(--hsb-primary) !important;
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+    border: 1px solid var(--hsb-primary) !important;
+}}
+
+.stButton > button[kind="primary"]:hover,
+.stFormSubmitButton > button[kind="primary"]:hover,
+div[data-testid="stFormSubmitButton"] button:hover,
+button[kind="primaryFormSubmit"]:hover {{
+    background: var(--hsb-primary-light) !important;
+    background-color: var(--hsb-primary-light) !important;
+    border-color: var(--hsb-primary-light) !important;
+    color: #ffffff !important;
+}}
+
+.stButton > button[kind="primary"] *,
+.stFormSubmitButton > button[kind="primary"] *,
+div[data-testid="stFormSubmitButton"] button *,
+button[kind="primaryFormSubmit"] * {{
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+}}
+
+div[data-testid="stTextInputRootElement"] input,
+div[data-testid="stNumberInput"] input {{
+    width: 100%;
+    box-sizing: border-box;
+    border-radius: 14px;
+    border: 1.5px solid var(--hsb-neutral-300);
+    background: #fbfcfd;
+    color: var(--hsb-neutral-900) !important;
+    -webkit-text-fill-color: var(--hsb-neutral-900) !important;
+    caret-color: var(--hsb-neutral-900);
+    min-height: 3.15rem;
+    padding-left: 0.9rem;
+    font-size: 1rem;
+}}
+
+div[data-testid="stTextInputRootElement"] input::placeholder,
+div[data-testid="stNumberInput"] input::placeholder {{
+    color: var(--hsb-neutral-700) !important;
+    opacity: 1;
+}}
+
+div[data-testid="stTextInputRootElement"] input:focus,
+div[data-testid="stNumberInput"] input:focus {{
+    border-color: var(--hsb-primary-light);
+    box-shadow: 0 0 0 3px rgba(0, 119, 200, 0.12);
+}}
+
+/* Selektoren fuer Dropdowns (Selectbox, Optionen, aktive Auswahl) */
+div[data-baseweb="select"] > div {{
+    background: #fbfcfd !important;
+    color: var(--hsb-neutral-900) !important;
+    border-color: var(--hsb-neutral-300) !important;
+}}
+
+div[data-baseweb="select"] span,
+div[data-baseweb="select"] input {{
+    color: var(--hsb-neutral-900) !important;
+    -webkit-text-fill-color: var(--hsb-neutral-900) !important;
+}}
+
+ul[role="listbox"] li,
+ul[role="listbox"] div {{
+    color: var(--hsb-neutral-900) !important;
+    background: white !important;
+}}
+
+/* Teamnamen und sonstige Textknoten in Streamlit-Listen lesbar halten */
+[data-testid="stMarkdownContainer"] li,
+[data-testid="stMarkdownContainer"] p,
+[data-testid="stMarkdownContainer"] span {{
+    color: var(--hsb-neutral-900) !important;
+}}
+
+[data-testid="stWidgetLabel"] {{
     font-weight: 600;
 }}
 
+div[data-testid="stForm"] {{
+    border: 0;
+    padding: 0;
+    background: transparent;
+}}
+
+div[data-testid="stProgressBar"] > div > div {{
+    background-color: var(--hsb-primary);
+}}
+
+div[data-testid="stMetric"] {{
+    border: 1px solid var(--hsb-neutral-200);
+    border-radius: 12px;
+    padding: 0.75rem 0.85rem;
+    background: white;
+}}
+
+details {{
+    border: 1px solid var(--hsb-neutral-200);
+    border-radius: 12px;
+    background: white;
+}}
+
+details summary {{
+    font-weight: 700;
+}}
+
+/* Hard override for Plotly text contrast (axes, labels, legend). */
+.js-plotly-plot .plotly .xtick text,
+.js-plotly-plot .plotly .ytick text,
+.js-plotly-plot .plotly .xaxislayer-above text,
+.js-plotly-plot .plotly .yaxislayer-above text,
+.js-plotly-plot .plotly .g-xtitle text,
+.js-plotly-plot .plotly .g-ytitle text,
+.js-plotly-plot .plotly .gtitle text,
+.js-plotly-plot .plotly .legend text,
+.js-plotly-plot .plotly .annotation text {{
+    fill: #212529 !important;
+    color: #212529 !important;
+}}
+
+@media (max-width: 900px) {{
+    .page-header {{
+        grid-template-columns: 1fr;
+    }}
+    .page-header-side {{
+        border-left: 0;
+        padding-left: 0;
+        border-top: 1px solid var(--hsb-neutral-200);
+        padding-top: 1rem;
+    }}
+    .leaderboard-row {{
+        grid-template-columns: 1fr;
+        gap: 0.35rem;
+    }}
+    .page-title {{
+        font-size: 1.75rem;
+    }}
+}}
+
+@media (min-width: 1400px) {{
+    [data-testid="stMetricValue"] {{
+        font-size: 2.6rem !important;
+    }}
+}}
 </style>
 """
 
 
 def inject_custom_css():
-    """
-    Injiziert das Custom CSS in die Streamlit-App.
-    
-    Sollte in der App einmalig aufgerufen werden (nach st.set_page_config).
-    """
     st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
 
-# ============================================================
-# Helper-Funktionen für UI-Komponenten
-# ============================================================
+def render_page_header(
+    title: str,
+    subtitle: str = "",
+    eyebrow: str = "Hochschule Bremen",
+    tagline: str = "Science for the real World",
+    side_label: str = "Quicklinks",
+    side_title: str = "",
+    side_copy: str = "",
+    side_items: list[str] | None = None,
+    variant: str = "public",
+    utility_context: str = "",
+) -> str:
+    subtitle_html = f'<div class="page-subtitle">{escape(subtitle)}</div>' if subtitle else ""
+    tagline_html = f'<div class="page-tagline">{escape(tagline)}</div>' if tagline else ""
+    side_items_html = ""
+    if side_items:
+        side_items_html = '<div class="page-side-list">' + "".join(
+            f'<div class="page-side-item">{escape(item)}</div>' for item in side_items
+        ) + "</div>"
+    side_title_html = f'<div class="page-side-title">{escape(side_title)}</div>' if side_title else ""
+    side_copy_html = f'<div class="page-side-copy">{escape(side_copy)}</div>' if side_copy else ""
+    has_side = bool(side_label or side_title or side_copy or side_items)
+    header_class = f"page-header {escape(variant)}"
+    if not has_side:
+        header_class += " single-column"
+    utility_context_html = (
+        f'<div class="hsb-utility-context">{escape(utility_context)}</div>' if utility_context else ""
+    )
+    return (
+        '<section class="hsb-site-header">'
+        '<div class="hsb-utility-bar">'
+        '<div class="hsb-utility-brand">HSB Hochschule Bremen</div>'
+        f"{utility_context_html}"
+        "</div>"
+        f'<section class="{header_class}">'
+        '<div class="page-header-main">'
+        f'<div class="page-eyebrow">{escape(eyebrow)}</div>'
+        f'<h1 class="page-title">{escape(title)}</h1>'
+        f"{subtitle_html}{tagline_html}"
+        "</div>"
+        '<aside class="page-header-side">'
+        f'<div class="page-side-label">{escape(side_label)}</div>'
+        f"{side_title_html}{side_copy_html}{side_items_html}"
+        "</aside>"
+        "</section>"
+        "</section>"
+    )
+
+
+def render_section_heading(title: str, subtitle: str = "") -> str:
+    subtitle_html = f'<div class="section-heading-subtitle">{escape(subtitle)}</div>' if subtitle else ""
+    return (
+        f'<div class="section-heading">'
+        f'<div class="section-heading-title">{escape(title)}</div>'
+        f"{subtitle_html}"
+        f"</div>"
+    )
+
+
+def render_panel(title: str, body: str, tone: str = "default") -> str:
+    tone_class = {
+        "default": "",
+        "accent": " ui-panel-accent",
+        "muted": " ui-panel-muted",
+        "success": " ui-panel-success",
+        "warning": " ui-panel-warning",
+        "danger": " ui-panel-danger",
+    }.get(tone, "")
+    title_html = f'<div class="ui-panel-title">{escape(title)}</div>' if title else ""
+    return f'<section class="ui-panel{tone_class}">{title_html}{body}</section>'
+
+
+def render_metric_grid(items: list[dict]) -> str:
+    cards = []
+    for item in items:
+        cards.append(
+            '<div class="ui-metric-card">'
+            f'<div class="ui-metric-value">{escape(str(item["value"]))}</div>'
+            f'<div class="ui-metric-label">{escape(item["label"])}</div>'
+            "</div>"
+        )
+    return '<div class="ui-metric-grid">' + "".join(cards) + "</div>"
+
+
+def render_tag_list(values: list[str], variant: str = "neutral") -> str:
+    if not values:
+        return ""
+    variant_class = " ui-tag-accent" if variant == "accent" else ""
+    tags = "".join(f'<span class="ui-tag{variant_class}">{escape(value)}</span>' for value in values)
+    return f'<div class="ui-tag-list">{tags}</div>'
+
 
 def render_phase_badge(phase: str) -> str:
-    """
-    Rendert einen HTML-Badge für die aktuelle Challenge-Phase.
-    
-    Returns:
-        HTML-String (für st.markdown(..., unsafe_allow_html=True))
-    """
     phase_labels = {
-        "registration": "🎫 Registrierung",
-        "feature_selection": "🔧 Feature-Auswahl",
-        "training": "⚙️ Training",
-        "results": "🏆 Ergebnisse",
+        "registration": "Registrierung",
+        "feature_selection": "Feature-Auswahl",
+        "training": "Training",
+        "results": "Ergebnisse",
     }
-    
-    label = phase_labels.get(phase, phase.upper())
-    css_class = f"phase-{phase.replace('_', '-')}"
-    
-    return f'<div class="phase-badge {css_class}">{label}</div>'
+    label = phase_labels.get(phase, phase.replace("_", " ").title())
+    return f'<span class="ui-badge ui-badge-phase">{escape(label)}</span>'
 
 
 def render_status_badge(submitted: bool) -> str:
-    """
-    Rendert einen Status-Badge (Ausstehend / Abgegeben).
-    
-    Returns:
-        HTML-String
-    """
     if submitted:
-        return '<span class="badge badge-submitted">✅ Abgegeben</span>'
-    else:
-        return '<span class="badge badge-pending">⏳ Ausstehend</span>'
+        return '<span class="ui-badge ui-badge-submitted">Abgegeben</span>'
+    return '<span class="ui-badge ui-badge-pending">Ausstehend</span>'
 
 
-def render_rank_emoji(rank: int) -> str:
-    """Gibt das Emoji für einen Leaderboard-Rang zurück."""
-    if rank == 1:
-        return "🥇"
-    elif rank == 2:
-        return "🥈"
-    elif rank == 3:
-        return "🥉"
-    else:
-        return f"{rank}."
+def render_rank_label(rank: int) -> str:
+    return str(rank)
+
+
+def render_leaderboard(entries: list[dict], include_time: bool = True, include_features: bool = False) -> str:
+    if not entries:
+        return render_panel(
+            "Leaderboard",
+            '<p class="ui-panel-copy">Noch keine Ergebnisse vorhanden.</p>',
+            tone="muted",
+        )
+
+    rows = []
+    for entry in entries:
+        row_class = ""
+        if entry["rank"] <= 3:
+            row_class = f" top-{entry['rank']}"
+        time_col = ""
+        if include_time:
+            time_col = (
+                '<div>'
+                '<div class="leaderboard-meta-label">Zeit</div>'
+                f'<div class="leaderboard-meta-value">{entry["train_time"]:.2f} s</div>'
+                "</div>"
+            )
+        features_html = ""
+        if include_features and entry.get("features"):
+            feature_tags = " ".join(
+                f'<span class="ui-tag ui-tag-accent" style="font-size:0.75rem;padding:0.2rem 0.45rem;">{escape(f)}</span>'
+                for f in entry["features"]
+            )
+            features_html = (
+                '<div style="grid-column:1/-1;margin-top:0.3rem;">'
+                '<div class="leaderboard-meta-label">Features</div>'
+                f'<div style="display:flex;flex-wrap:wrap;gap:0.3rem;margin-top:0.25rem;">{feature_tags}</div>'
+                "</div>"
+            )
+        rows.append(
+            f'<div class="leaderboard-row{row_class}">'
+            f'<div class="leaderboard-rank">{render_rank_label(entry["rank"])}</div>'
+            f'<div class="leaderboard-team">{escape(entry["team_name"])}</div>'
+            '<div>'
+            '<div class="leaderboard-meta-label">F1-Score</div>'
+            f'<div class="leaderboard-meta-value">{entry["f1_macro"]*100:.2f} %</div>'
+            "</div>"
+            '<div>'
+            '<div class="leaderboard-meta-label">Accuracy</div>'
+            f'<div class="leaderboard-meta-value">{entry["accuracy"]*100:.2f} %</div>'
+            "</div>"
+            f"{time_col}"
+            f"{features_html}"
+            "</div>"
+        )
+    return '<div class="leaderboard-list">' + "".join(rows) + "</div>"

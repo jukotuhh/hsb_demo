@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: hsb-demo
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: CHALLENGE_ADMIN_SECRET
+        value: hsb2026
+      - key: CHALLENGE_APP_URL
+        sync: false
+      - key: STREAMLIT_SERVER_HEADLESS
+        value: "true"

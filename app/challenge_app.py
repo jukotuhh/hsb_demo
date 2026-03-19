@@ -22,13 +22,16 @@ import os
 import sys
 import hmac
 import time
+from html import escape
 from io import BytesIO
+from urllib.parse import unquote
 
 import numpy as np
-import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
 
 # Projektverzeichnis zum Pfad hinzufügen
 PROJECT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -41,7 +44,7 @@ try:
     HAS_QRCODE = True
 except ImportError:
     HAS_QRCODE = False
-    print("⚠ qrcode-Library nicht installiert. QR-Code wird nicht angezeigt.")
+    print("qrcode-Library nicht installiert. QR-Code wird nicht angezeigt.")
 
 # Auto-Refresh
 try:
@@ -49,17 +52,26 @@ try:
     HAS_AUTOREFRESH = True
 except ImportError:
     HAS_AUTOREFRESH = False
-    print("⚠ streamlit-autorefresh nicht installiert. Auto-Refresh deaktiviert.")
+    print("streamlit-autorefresh nicht installiert. Auto-Refresh deaktiviert.")
 
 # Eigene Module
 from src.data_loader import prepare_dataset, generate_demo_data, CLASS_NAMES
-from src.features import FEATURE_NAMES, _compute_spectrum
-from src.feature_info import FEATURE_INFO, get_time_domain_features, get_frequency_domain_features
+from src.features import FEATURE_NAMES, _compute_spectrum, extract_all_features
+from src.feature_info import FEATURE_INFO
 from src import challenge_state
 from app.ui_theme import (
-    inject_custom_css, get_plotly_layout, get_class_color, get_rank_color,
-    render_phase_badge, render_status_badge, render_rank_emoji,
-    HSB_PRIMARY, COLOR_SUCCESS, COLOR_WARNING, COLOR_ERROR, CHART_COLORS
+    inject_custom_css,
+    get_plotly_layout,
+    get_class_color,
+    render_leaderboard,
+    render_metric_grid,
+    render_page_header,
+    render_panel,
+    render_phase_badge,
+    render_section_heading,
+    render_status_badge,
+    render_tag_list,
+    HSB_PRIMARY,
 )
 
 
@@ -68,8 +80,7 @@ from app.ui_theme import (
 # ============================================================
 
 st.set_page_config(
-    page_title="Bearing Challenge — HSB",
-    page_icon="🏭",
+    page_title="Hoersaaluebung Mustererkennung | HSB",
     layout="wide",
     initial_sidebar_state="collapsed",  # Sidebar auf Mobile verstecken
 )
@@ -89,25 +100,57 @@ APP_URL = os.environ.get("CHALLENGE_APP_URL", "http://localhost:8501")
 
 @st.cache_data(show_spinner="Daten werden geladen...")
 def load_data():
-    """Lädt den Dataset (echt oder synthetisch)."""
+    """Lädt Modell- und Explorationsdaten (normalisiert + roh)."""
     data_dir = os.path.join(PROJECT_DIR, "data")
     try:
-        mat_files = [f for f in os.listdir(data_dir) if f.endswith(".mat")]
-        if len(mat_files) == 0:
-            raise FileNotFoundError("Keine .mat-Dateien")
-        data = prepare_dataset(data_dir, segment_length=1024, overlap=0.5)
-        return data, False
+        # Wichtig: prepare_dataset/load_mat_files sucht rekursiv unterhalb von data_dir.
+        # Daher hier kein top-level .mat-Check, sonst faellt die App faelschlich
+        # auf Demo-Daten zurueck, wenn die Dateien z.B. in data/archive/raw liegen.
+        model_data = prepare_dataset(data_dir, segment_length=1024, overlap=0.5, normalize=True)
+        explore_data = prepare_dataset(data_dir, segment_length=1024, overlap=0.5, normalize=False)
+        return model_data, explore_data, False
     except (FileNotFoundError, ValueError):
-        data = generate_demo_data(n_per_class=500, segment_length=1024)
-        return data, True
+        model_data = generate_demo_data(n_per_class=500, segment_length=1024, normalize=True)
+        explore_data = generate_demo_data(n_per_class=500, segment_length=1024, normalize=False)
+        return model_data, explore_data, True
 
 
 # Daten laden
-data, is_demo = load_data()
-X_train = data["X_train"]
-X_test = data["X_test"]
-y_train = data["y_train"]
-y_test = data["y_test"]
+model_data, explore_data, is_demo = load_data()
+X_train = model_data["X_train"]
+X_test = model_data["X_test"]
+y_train = model_data["y_train"]
+y_test = model_data["y_test"]
+X_train_explore = explore_data["X_train"]
+X_test_explore = explore_data["X_test"]
+y_train_explore = explore_data["y_train"]
+y_test_explore = explore_data["y_test"]
+X_all = np.concatenate([X_train_explore, X_test_explore], axis=0)
+y_all = np.concatenate([y_train_explore, y_test_explore], axis=0)
+
+
+@st.cache_data(show_spinner=False)
+def get_feature_overview():
+    """Berechnet alle 12 Features fuer den gesamten Datensatz (Train + Test)."""
+    feature_df = extract_all_features(X_all).copy()
+    y_source = y_all
+    feature_df["class_name"] = [CLASS_NAMES[idx] for idx in y_source]
+    return feature_df
+
+
+@st.cache_data(show_spinner=False)
+def get_feature_projection():
+    """Erzeugt eine 2D-PCA-Projektion ueber alle 12 Features."""
+    feature_df = get_feature_overview().copy()
+    X_features = feature_df[FEATURE_NAMES].values
+    X_scaled = StandardScaler().fit_transform(X_features)
+    pca = PCA(n_components=2, random_state=42)
+    projected = pca.fit_transform(X_scaled)
+
+    feature_df["pc1"] = projected[:, 0]
+    feature_df["pc2"] = projected[:, 1]
+    explained = pca.explained_variance_ratio_
+    return feature_df, explained.tolist()
 
 
 # ============================================================
@@ -181,13 +224,23 @@ def plot_signal_and_fft(signal, title="", color=HSB_PRIMARY, fs=12000):
 
 def plot_confusion_matrix(cm, title="Konfusionsmatrix"):
     """Plottet die Konfusionsmatrix."""
-    cm_text = [[str(val) for val in row] for row in cm]
+    cm_array = np.asarray(cm, dtype=float)
+    row_sums = cm_array.sum(axis=1, keepdims=True)
+    row_sums[row_sums == 0] = 1.0
+    cm_percent = (cm_array / row_sums) * 100.0
+    cm_text = [
+        [f"{int(cm_array[r, c])}<br>({cm_percent[r, c]:.1f}%)" for c in range(cm_array.shape[1])]
+        for r in range(cm_array.shape[0])
+    ]
     fig = go.Figure(data=go.Heatmap(
-        z=cm, x=CLASS_NAMES, y=CLASS_NAMES,
+        z=cm_percent, x=CLASS_NAMES, y=CLASS_NAMES,
         text=cm_text, texttemplate="%{text}",
         textfont={"size": 16},
         colorscale=[[0.0, "#F8F9FA"], [0.5, "#0077C8"], [1.0, "#003D66"]],
         showscale=True,
+        zmin=0,
+        zmax=100,
+        colorbar=dict(title="Anteil (%)"),
     ))
     fig.update_layout(
         **get_plotly_layout(
@@ -195,7 +248,15 @@ def plot_confusion_matrix(cm, title="Konfusionsmatrix"):
             xaxis_title="Vorhersage",
             yaxis_title="Wahrheit",
             height=400,
-            yaxis=dict(autorange="reversed"),
+            xaxis=dict(
+                title=dict(text="Vorhersage", font=dict(color="#212529")),
+                tickfont=dict(color="#212529"),
+            ),
+            yaxis=dict(
+                autorange="reversed",
+                title=dict(text="Wahrheit", font=dict(color="#212529")),
+                tickfont=dict(color="#212529"),
+            ),
         )
     )
     return fig
@@ -203,10 +264,12 @@ def plot_confusion_matrix(cm, title="Konfusionsmatrix"):
 
 def plot_feature_importances(importances, feature_names, title="Feature Importances"):
     """Plottet Feature Importances als horizontales Balkendiagramm."""
+    importances = np.asarray(importances, dtype=float)
+    feature_names = np.asarray(feature_names)
     sorted_idx = np.argsort(importances)
     fig = go.Figure(go.Bar(
         x=importances[sorted_idx],
-        y=np.array(feature_names)[sorted_idx],
+        y=feature_names[sorted_idx],
         orientation="h",
         marker_color=HSB_PRIMARY,
         text=[f"{v:.3f}" for v in importances[sorted_idx]],
@@ -221,21 +284,141 @@ def plot_feature_importances(importances, feature_names, title="Feature Importan
     return fig
 
 
+def format_percent(value: float) -> str:
+    """Formatiert einen Wert als Prozent-String."""
+    return f"{value * 100:.2f} %"
+
+
+def render_message_panel(title: str, text: str, tone: str = "default"):
+    """Rendert eine kurze Hinweisbox im Theme-Stil."""
+    body = f'<p class="ui-panel-copy">{escape(text)}</p>'
+    st.markdown(render_panel(title, body, tone=tone), unsafe_allow_html=True)
+
+
+def render_team_submission_cards(teams: dict):
+    """Rendert den Status aller Teams als Kartenliste."""
+    if not teams:
+        render_message_panel("Noch keine Teams", "Aktuell sind keine Teams registriert.", tone="muted")
+        return
+
+    for team in teams.values():
+        features = team.get("selected_features") or []
+        feature_html = (
+            render_tag_list(features, variant="accent")
+            if features
+            else '<p class="ui-panel-copy">Noch keine Features ausgewählt.</p>'
+        )
+        body = (
+            f"{render_status_badge(team['submitted'])}"
+            f"{feature_html}"
+        )
+        st.markdown(render_panel(team["name"], body), unsafe_allow_html=True)
+
+
 # ============================================================
 # Routing
 # ============================================================
 
 query_params = st.query_params
-admin_key = query_params.get("admin", None)
-team_id = query_params.get("team", None)
+
+
+def _recover_query_value(param_name: str) -> str | None:
+    """
+    Liest Query-Parameter robust aus und faengt auch falsch codierte Varianten ab.
+
+    Beispiel einer fehlerhaften URL:
+        ?admin%3Dhsb2026
+    In diesem Fall liefert Streamlit keinen "admin"-Key, sondern den Key "admin=hsb2026".
+    """
+    direct_value = query_params.get(param_name, None)
+    if direct_value:
+        return direct_value
+
+    token = f"{param_name}="
+    for raw_key in query_params.keys():
+        decoded_key = unquote(str(raw_key))
+        if decoded_key.startswith(token):
+            value = decoded_key[len(token):]
+            if "&" in value:
+                value = value.split("&", 1)[0]
+            return value or None
+    return None
+
+
+admin_key = _recover_query_value("admin")
+team_id = _recover_query_value("team")
+dozent_flag = _recover_query_value("dozent")
+is_teacher_entry = (
+    dozent_flag is not None
+    and str(dozent_flag).strip().lower() not in {"0", "false", "no", "off"}
+)
 
 # Admin-Authentifizierung
 is_admin = False
 if admin_key:
     is_admin = hmac.compare_digest(admin_key, ADMIN_SECRET)
     if not is_admin:
-        st.error("🚫 Ungültiges Admin-Passwort.")
+        render_message_panel("Zugriff verweigert", "Das Admin-Passwort ist ungültig.", tone="danger")
         st.stop()
+    st.session_state["admin_mode"] = True
+
+# Separate Dozenten-URL: /?dozent=1
+if is_teacher_entry and not is_admin:
+    st.markdown(
+        render_page_header(
+            "Dozenten-Zugang",
+            "Bitte melden Sie sich mit dem Admin-Passwort an, um das Challenge Control Panel zu oeffnen.",
+            eyebrow="Dozent",
+            tagline="Zukunft gemeinsam gestalten",
+            side_label="Lehransicht",
+            side_title="Admin-Login",
+            side_copy="Diese URL ist fuer Lehrpersonen vorgesehen und fuehrt direkt in den geschuetzten Admin-Bereich.",
+            side_items=["Phase steuern", "Abgaben pruefen", "Team-Training ausloesen"],
+            variant="admin",
+            utility_context="Probevorlesung - Julian Koch",
+        ),
+        unsafe_allow_html=True,
+    )
+
+    with st.form("teacher_login_form", clear_on_submit=False):
+        entered_secret = st.text_input(
+            "Admin-Passwort",
+            type="password",
+            placeholder="Passwort eingeben",
+        )
+        login_submitted = st.form_submit_button("Admin-Panel oeffnen", type="primary", width="stretch")
+
+    if login_submitted:
+        if not entered_secret.strip():
+            render_message_panel("Passwort fehlt", "Bitte geben Sie das Admin-Passwort ein.", tone="warning")
+        elif hmac.compare_digest(entered_secret.strip(), ADMIN_SECRET):
+            st.query_params.clear()
+            st.query_params["admin"] = entered_secret.strip()
+            st.rerun()
+        else:
+            render_message_panel("Login fehlgeschlagen", "Das Admin-Passwort ist ungueltig.", tone="danger")
+
+    if st.button("Zur Team-Startseite", width="stretch"):
+        st.query_params.clear()
+        st.rerun()
+    st.stop()
+
+# Falls diese Browser-Session bereits im Admin-Modus war, nicht versehentlich
+# in die Team-/Registrierungsansicht springen lassen.
+if st.session_state.get("admin_mode", False) and not is_admin:
+    render_message_panel(
+        "Admin-Modus aktiv",
+        "Diese Sitzung ist als Dozentenansicht markiert. Oeffnen Sie das Admin-Panel oder verlassen Sie den Admin-Modus.",
+        tone="warning",
+    )
+    if st.button("Zum Admin-Panel", type="primary", width="stretch"):
+        st.query_params["admin"] = ADMIN_SECRET
+        st.rerun()
+    if st.button("Admin-Modus verlassen", width="stretch"):
+        st.session_state["admin_mode"] = False
+        st.query_params.clear()
+        st.rerun()
+    st.stop()
 
 
 # ============================================================
@@ -243,194 +426,280 @@ if admin_key:
 # ============================================================
 
 if is_admin:
-    st.title("🏭 Bearing Challenge — Admin-Panel")
-    st.markdown("---")
-    
-    # Phase-Badge
+    st.markdown(
+        render_page_header(
+            "Challenge Control Panel",
+            "Dozentenansicht fuer Start, Monitoring und Auswertung der Classroom-Challenge.",
+            eyebrow="Admin",
+            tagline="Zukunft gemeinsam gestalten",
+            side_label="Lehransicht",
+            side_title="Projektorbereit",
+            side_copy="Die Admin-Ansicht ist fuer Moderation, Statuskontrolle und die gemeinsame Ergebnisbesprechung ausgelegt.",
+            side_items=["QR-Code teilen", "Phase freigeben", "Abgaben pruefen", "Ergebnisse praesentieren"],
+            variant="admin",
+            utility_context="Probevorlesung - Julian Koch",
+        ),
+        unsafe_allow_html=True,
+    )
+
     current_phase = challenge_state.get_phase()
-    st.markdown(render_phase_badge(current_phase), unsafe_allow_html=True)
-    st.markdown("##")
-    
-    # QR-Code (links), Phase-Steuerung (rechts)
+    phase_panel_body = (
+        f'{render_phase_badge(current_phase)}'
+        '<p class="ui-panel-copy" style="margin-top:0.8rem;">'
+        "Wechseln Sie die Challenge kontrolliert zwischen Registrierung, Auswahl, Training und Ergebnissen."
+        "</p>"
+    )
+
     col_qr, col_control = st.columns([1, 2])
-    
+
     with col_qr:
-        st.subheader("📱 QR-Code für Studierende")
         qr_url = get_app_url_for_qr()
-        st.caption(f"URL: `{qr_url}`")
-        
+        st.markdown(
+            render_panel(
+                "App-Zugang",
+                (
+                    '<p class="ui-panel-copy">QR-Code oder URL mit der Gruppe teilen.</p>'
+                    f'<p class="ui-panel-copy"><code>{escape(qr_url)}</code></p>'
+                ),
+                tone="accent",
+            ),
+            unsafe_allow_html=True,
+        )
         if HAS_QRCODE:
             qr_bytes = generate_qr_code(qr_url)
             if qr_bytes:
                 st.image(qr_bytes, width=300)
         else:
-            st.warning("QR-Code-Bibliothek nicht installiert. URL manuell teilen.")
-    
+            render_message_panel("QR-Code nicht verfuegbar", "Die URL kann direkt im Browser geteilt werden.", tone="warning")
+
     with col_control:
-        st.subheader("⚙️ Phasen-Steuerung")
-        
-        # Phase-Buttons
+        st.markdown(render_panel("Challenge-Status", phase_panel_body, tone="accent"), unsafe_allow_html=True)
+        st.markdown(
+            render_panel(
+                "Phase manuell steuern",
+                '<p class="ui-panel-copy">Optional fuer die Projektoransicht. Teams koennen den Ablauf selbst steuern.</p>',
+                tone="muted",
+            ),
+            unsafe_allow_html=True,
+        )
+
+        phase_labels = {
+            "registration": "Registrierung",
+            "feature_selection": "Feature-Auswahl",
+            "training": "Training",
+            "results": "Ergebnisse",
+        }
+        phase_order = list(phase_labels.keys())
+        if st.session_state.get("admin_phase_select") != current_phase:
+            # Sync selectbox with real server state to avoid stale UI.
+            st.session_state["admin_phase_select"] = current_phase
+        selected_phase = st.selectbox(
+            "Zielphase",
+            phase_order,
+            format_func=lambda key: phase_labels[key],
+            key="admin_phase_select",
+        )
+
+        def _set_phase_and_rerun(target_phase: str):
+            challenge_state.set_phase(target_phase)
+            st.session_state["admin_phase_select"] = target_phase
+            st.rerun()
+
+        if st.button("Ausgewaehlte Phase setzen", width="stretch", key="admin_set_phase"):
+            _set_phase_and_rerun(selected_phase)
+
         if current_phase == "registration":
-            if st.button("➡️ Feature-Auswahl freigeben", type="primary", use_container_width=True):
-                challenge_state.set_phase("feature_selection")
-                st.rerun()
-        
+            if st.button("Feature-Auswahl freigeben", type="primary", width="stretch"):
+                _set_phase_and_rerun("feature_selection")
         elif current_phase == "feature_selection":
-            if st.button("➡️ Training starten", type="primary", use_container_width=True):
-                challenge_state.set_phase("training")
-                st.rerun()
-        
+            if st.button("Training starten", type="primary", width="stretch"):
+                _set_phase_and_rerun("training")
         elif current_phase == "training":
-            if st.button("➡️ Ergebnisse zeigen", type="primary", use_container_width=True):
-                challenge_state.set_phase("results")
-                st.rerun()
-        
+            if st.button("Ergebnisse zeigen", type="primary", width="stretch"):
+                _set_phase_and_rerun("results")
         elif current_phase == "results":
-            if st.button("🔄 Neue Runde starten", type="primary", use_container_width=True):
+            if st.button("Neue Runde starten", type="primary", width="stretch"):
                 if st.session_state.get("confirm_reset", False):
                     challenge_state.reset()
                     st.session_state["confirm_reset"] = False
                     st.rerun()
                 else:
                     st.session_state["confirm_reset"] = True
-                    st.warning("⚠️ Klicken Sie erneut, um zu bestätigen (alle Daten werden gelöscht).")
-    
-    st.markdown("---")
-    
-    # Auto-Refresh in Registrierungs- und Feature-Auswahl-Phase
+                    render_message_panel(
+                        "Bestaetigung erforderlich",
+                        "Bitte klicken Sie erneut, um alle Challenge-Daten zu loeschen und eine neue Runde zu starten.",
+                        tone="warning",
+                    )
+
     if current_phase in ["registration", "feature_selection"] and HAS_AUTOREFRESH:
         st_autorefresh(interval=3000, key="admin_refresh")
-    
-    # ======== Registrierungs-Phase ========
+
     if current_phase == "registration":
-        st.subheader("📋 Registrierte Teams")
-        
         teams = challenge_state.get_all_teams()
         if teams:
-            team_names = [t["name"] for t in teams.values()]
-            for i, name in enumerate(team_names, start=1):
-                st.markdown(f"**{i}.** {name}")
-            
-            st.metric("Anzahl Teams", len(teams))
+            st.markdown(render_section_heading("Registrierte Teams", "Live-Uebersicht der aktiven Gruppen."), unsafe_allow_html=True)
+            st.markdown(
+                render_metric_grid(
+                    [
+                        {"label": "Registrierte Teams", "value": len(teams)},
+                        {"label": "Aktuelle Phase", "value": "Registrierung"},
+                    ]
+                ),
+                unsafe_allow_html=True,
+            )
+            team_list = "".join(
+                f"<li>{escape(team['name'])}</li>"
+                for team in sorted(teams.values(), key=lambda item: item["name"].lower())
+            )
+            st.markdown(
+                render_panel(
+                    "Teamliste",
+                    f'<ol class="ui-panel-copy" style="margin:0; padding-left:1.1rem;">{team_list}</ol>',
+                ),
+                unsafe_allow_html=True,
+            )
         else:
-            st.info("Noch keine Teams registriert. Zeigen Sie den QR-Code!")
-    
-    # ======== Feature-Auswahl-Phase ========
+            render_message_panel("Warten auf Teams", "Sobald Teams registriert sind, erscheinen sie hier automatisch.", tone="muted")
+
     elif current_phase == "feature_selection":
-        st.subheader("📊 Team-Status")
-        
         teams = challenge_state.get_all_teams()
         status = challenge_state.get_submission_status()
-        
         if teams:
-            # Fortschrittsbalken
+            st.markdown(render_section_heading("Teamstatus", "Abgabequote und ausgewaehlte Merkmale im Blick."), unsafe_allow_html=True)
+            st.markdown(
+                render_metric_grid(
+                    [
+                        {"label": "Teams gesamt", "value": status["total_teams"]},
+                        {"label": "Abgegeben", "value": status["submitted"]},
+                        {"label": "Ausstehend", "value": status["total_teams"] - status["submitted"]},
+                    ]
+                ),
+                unsafe_allow_html=True,
+            )
             st.progress(status["percentage"] / 100)
-            st.caption(f"{status['submitted']}/{status['total_teams']} Teams haben Features abgegeben ({status['percentage']:.0f}%)")
-            
-            # Tabelle
-            rows = []
-            for tid, team in teams.items():
-                rows.append({
-                    "Team": team["name"],
-                    "Status": "✅ Abgegeben" if team["submitted"] else "⏳ Ausstehend",
-                    "Features": ", ".join(team["selected_features"]) if team["selected_features"] else "—",
-                })
-            
-            df = pd.DataFrame(rows)
-            st.dataframe(df, use_container_width=True, hide_index=True)
+            st.caption(
+                f"{status['submitted']} von {status['total_teams']} Teams haben ihre Auswahl abgegeben."
+            )
+            render_team_submission_cards(teams)
         else:
-            st.info("Keine Teams registriert.")
-    
-    # ======== Training-Phase ========
+            render_message_panel("Keine Teams vorhanden", "Ohne registrierte Teams kann die Feature-Auswahl nicht starten.", tone="muted")
+
     elif current_phase == "training":
-        st.subheader("🚀 Training")
-        
         status = challenge_state.get_submission_status()
         if status["submitted"] == 0:
-            st.warning("Keine Teams haben Features abgegeben.")
+            render_message_panel("Training nicht moeglich", "Es wurden noch keine Feature-Sets abgegeben.", tone="warning")
         else:
-            st.info(f"{status['submitted']} Teams bereit für Training.")
-            
-            if st.button("🚀 Alle Modelle trainieren", type="primary", use_container_width=True):
-                progress_bar = st.progress(0)
+            st.markdown(
+                render_section_heading(
+                    "Training",
+                    "Modelle koennen pro Team einzeln trainiert werden. Erst danach in die Ergebnisphase wechseln.",
+                ),
+                unsafe_allow_html=True,
+            )
+            teams = challenge_state.get_all_teams()
+            submitted_teams = [
+                (tid, team) for tid, team in teams.items()
+                if team.get("submitted") and team.get("selected_features")
+            ]
+            trained_count = sum(
+                1 for tid, _ in submitted_teams
+                if challenge_state.get_team_result(tid) is not None
+            )
+            st.markdown(
+                render_metric_grid(
+                    [
+                        {"label": "Bereite Teams", "value": len(submitted_teams)},
+                        {"label": "Bereits trainiert", "value": trained_count},
+                        {"label": "Verfuegbare Features", "value": len(FEATURE_NAMES)},
+                    ]
+                ),
+                unsafe_allow_html=True,
+            )
+
+            if st.button("Alle offenen Teams trainieren", type="primary", width="stretch", key="train_all_open"):
+                open_team_ids = [
+                    tid for tid, _ in submitted_teams
+                    if challenge_state.get_team_result(tid) is None
+                ]
+                progress_bar = st.progress(0) if open_team_ids else None
                 status_text = st.empty()
-                
-                def progress_callback(current, total):
-                    progress_bar.progress(current / total)
-                    status_text.text(f"Trainiere Team {current}/{total}...")
-                
-                with st.spinner("Training läuft..."):
-                    challenge_state.run_all_trainings(
-                        X_train, y_train, X_test, y_test,
-                        progress_callback=progress_callback
-                    )
-                    
-                    # Optimales Modell trainieren
+                with st.spinner("Teammodelle werden trainiert..."):
+                    for idx, tid in enumerate(open_team_ids, start=1):
+                        team_name = teams[tid]["name"]
+                        status_text.text(f"Trainiere {team_name} ({idx}/{len(open_team_ids)})...")
+                        challenge_state.run_team_training(tid, X_train, y_train, X_test, y_test)
+                        if progress_bar:
+                            progress_bar.progress(idx / len(open_team_ids))
                     challenge_state.train_optimal_model(X_train, y_train, X_test, y_test)
-                
-                st.success("✅ Training abgeschlossen!")
-                time.sleep(2)
-                
-                # Automatisch zu Results wechseln
+                if open_team_ids:
+                    render_message_panel(
+                        "Training abgeschlossen",
+                        f"{len(open_team_ids)} Team(s) wurden trainiert. Wechseln Sie anschliessend in die Ergebnisphase.",
+                        tone="success",
+                    )
+                else:
+                    render_message_panel("Keine offenen Teams", "Alle abgegebenen Teams sind bereits trainiert.", tone="muted")
+                st.rerun()
+
+            for tid, team in submitted_teams:
+                result = challenge_state.get_team_result(tid)
+                selected_features = team.get("selected_features") or []
+                status_badge = render_status_badge(result is not None)
+                result_text = (
+                    f'<p class="ui-panel-copy">F1: {format_percent(result["f1_macro"])}, Accuracy: {format_percent(result["accuracy"])}</p>'
+                    if result is not None
+                    else '<p class="ui-panel-copy">Noch nicht trainiert.</p>'
+                )
+                body = (
+                    f"{status_badge}"
+                    f"{render_tag_list(selected_features, variant='accent')}"
+                    f"{result_text}"
+                )
+                st.markdown(render_panel(f"Team: {team['name']}", body), unsafe_allow_html=True)
+                button_label = "Erneut trainieren" if result is not None else "Dieses Team trainieren"
+                if st.button(button_label, width="stretch", key=f"train_team_{tid}"):
+                    with st.spinner(f"Trainiere {team['name']}..."):
+                        challenge_state.run_team_training(tid, X_train, y_train, X_test, y_test)
+                    render_message_panel(
+                        "Team trainiert",
+                        f"{team['name']} wurde erfolgreich trainiert.",
+                        tone="success",
+                    )
+                    st.rerun()
+
+            if st.button("Zur Ergebnisphase wechseln", width="stretch", key="goto_results"):
+                challenge_state.train_optimal_model(X_train, y_train, X_test, y_test)
                 challenge_state.set_phase("results")
                 st.rerun()
-    
-    # ======== Ergebnis-Phase ========
+
     elif current_phase == "results":
-        st.subheader("🏆 Leaderboard")
-        
         leaderboard = challenge_state.get_leaderboard()
-        
         if not leaderboard:
-            st.warning("Keine Ergebnisse verfügbar. Training noch nicht durchgeführt?")
+            render_message_panel("Noch keine Ergebnisse", "Fuehren Sie zuerst das Training aus, damit Ergebnisse erscheinen.", tone="warning")
         else:
-            # Leaderboard-Tabelle mit Highlighting
-            rows = []
-            for entry in leaderboard:
-                rank_emoji = render_rank_emoji(entry["rank"])
-                rows.append({
-                    "Rang": rank_emoji,
-                    "Team": entry["team_name"],
-                    "F1-Score": f"{entry['f1_macro']*100:.2f}%",
-                    "Accuracy": f"{entry['accuracy']*100:.2f}%",
-                    "Zeit (s)": f"{entry['train_time']:.2f}",
-                })
-            
-            df = pd.DataFrame(rows)
-            st.dataframe(
-                df,
-                use_container_width=True,
-                hide_index=True,
-                height=(len(rows) + 1) * 35 + 3,
+            best_entry = leaderboard[0]
+            st.markdown(render_section_heading("Leaderboard", "Projektorfreundliche Ergebnisansicht fuer den Klassenraum."), unsafe_allow_html=True)
+            st.markdown(
+                render_metric_grid(
+                    [
+                        {"label": "Bestes Team", "value": best_entry["team_name"]},
+                        {"label": "Bester F1-Score", "value": format_percent(best_entry["f1_macro"])},
+                        {"label": "Teams mit Ergebnis", "value": len(leaderboard)},
+                    ]
+                ),
+                unsafe_allow_html=True,
             )
-            
-            # Top 3 hervorheben
-            st.markdown("###")
-            col1, col2, col3 = st.columns(3)
-            
-            for i, col in enumerate([col1, col2, col3], start=1):
-                if i <= len(leaderboard):
-                    entry = leaderboard[i-1]
-                    with col:
-                        st.markdown(f"### {render_rank_emoji(i)} {entry['team_name']}")
-                        st.metric("F1-Score", f"{entry['f1_macro']*100:.1f}%")
-                        st.metric("Accuracy", f"{entry['accuracy']*100:.1f}%")
-        
-        # Feature-Analyse (Expander)
-        st.markdown("---")
-        with st.expander("📈 Feature-Analyse", expanded=False):
-            st.subheader("Feature-Häufigkeit")
-            
-            # Zähle, wie oft jedes Feature gewählt wurde
+            st.markdown(render_leaderboard(leaderboard, include_time=True, include_features=True), unsafe_allow_html=True)
+
+        with st.expander("Feature-Analyse", expanded=False):
+            st.markdown(render_section_heading("Feature-Haeufigkeit"), unsafe_allow_html=True)
             teams = challenge_state.get_all_teams()
             feature_counts = {f: 0 for f in FEATURE_NAMES}
-            
             for team in teams.values():
                 if team["selected_features"]:
                     for feat in team["selected_features"]:
                         feature_counts[feat] += 1
-            
-            # Balkendiagramm
+
             sorted_features = sorted(feature_counts.items(), key=lambda x: x[1], reverse=True)
             fig = go.Figure(go.Bar(
                 x=[count for _, count in sorted_features],
@@ -445,30 +714,83 @@ if is_admin:
                 height=500,
                 margin=dict(l=200, r=20, t=30, b=40),
             ))
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # Optimales Feature-Set
-            st.markdown("###")
-            st.subheader("🎯 Optimales Feature-Set (alle 12 Features)")
-            
+            st.plotly_chart(fig, width="stretch")
+
+            st.markdown(render_section_heading("Optimales Feature-Set", "Referenzmodell mit allen 12 Features."), unsafe_allow_html=True)
             optimal = challenge_state.get_optimal_result()
             if optimal:
-                col_opt1, col_opt2, col_opt3 = st.columns(3)
-                col_opt1.metric("F1-Score", f"{optimal['f1_macro']*100:.2f}%")
-                col_opt2.metric("Accuracy", f"{optimal['accuracy']*100:.2f}%")
-                col_opt3.metric("Zeit", f"{optimal['train_time']:.2f}s")
-                
-                # Feature Importances
+                st.markdown(
+                    render_metric_grid(
+                        [
+                            {"label": "F1-Score", "value": format_percent(optimal["f1_macro"])},
+                            {"label": "Accuracy", "value": format_percent(optimal["accuracy"])},
+                            {"label": "Trainingszeit", "value": f"{optimal['train_time']:.2f} s"},
+                        ]
+                    ),
+                    unsafe_allow_html=True,
+                )
                 fig_opt = plot_feature_importances(
                     np.array(optimal["feature_importances"]),
                     optimal["feature_names"],
                     "Feature Importances (optimales Modell)"
                 )
-                st.plotly_chart(fig_opt, use_container_width=True)
+                st.plotly_chart(fig_opt, width="stretch")
             else:
-                st.info("Optimales Modell noch nicht trainiert.")
-    
-    st.stop()  # Admin-View endet hier
+                render_message_panel("Referenzmodell ausstehend", "Das optimale Modell wurde noch nicht trainiert.", tone="muted")
+
+        with st.expander("Zusammenfassung & Takeaways", expanded=False):
+            st.markdown(
+                render_section_heading(
+                    "Was haben wir gelernt?",
+                    "Kernerkenntnisse aus dieser Challenge-Runde.",
+                ),
+                unsafe_allow_html=True,
+            )
+
+            best_team_entry = leaderboard[0] if leaderboard else None
+            optimal_admin = challenge_state.get_optimal_result()
+            teams_admin = challenge_state.get_all_teams()
+            feature_counts_admin = {f: 0 for f in FEATURE_NAMES}
+            for t_item in teams_admin.values():
+                for feat in (t_item.get("selected_features") or []):
+                    feature_counts_admin[feat] += 1
+            most_popular = max(feature_counts_admin, key=feature_counts_admin.get) if feature_counts_admin else "-"
+            least_popular = min(
+                (f for f, c in feature_counts_admin.items() if c > 0),
+                key=feature_counts_admin.get,
+                default="-",
+            ) if any(c > 0 for c in feature_counts_admin.values()) else "-"
+
+            takeaway_items = [
+                f"Beliebtestes Feature: <strong>{escape(most_popular)}</strong> ({feature_counts_admin.get(most_popular, 0)}× gewaehlt).",
+                f"Am seltensten gewaehlt: <strong>{escape(least_popular)}</strong> ({feature_counts_admin.get(least_popular, 0)}×).",
+            ]
+            if best_team_entry:
+                takeaway_items.append(
+                    f"Bestes Team: <strong>{escape(best_team_entry['team_name'])}</strong> "
+                    f"mit F1 = {best_team_entry['f1_macro']*100:.2f}%."
+                )
+            if optimal_admin:
+                takeaway_items.append(
+                    f"Referenzmodell (alle 12 Features): F1 = {optimal_admin['f1_macro']*100:.2f}%. "
+                    "Dies zeigt, wie viel Leistung mit einer guten Teilmenge erreichbar ist."
+                )
+            takeaway_items.extend([
+                "Feature-Auswahl ist entscheidend: Wenige, aber gut trennende Features koennen fast so gut sein wie alle zusammen.",
+                "Redundante Features (z.B. RMS &amp; Standardabweichung) verschwenden Kapazitaet.",
+                "Die Konfusionsmatrix zeigt, <em>welche</em> Klassen problematisch sind &ndash; nicht nur <em>ob</em> Fehler auftreten.",
+            ])
+            takeaway_html = "".join(f"<li>{item}</li>" for item in takeaway_items)
+            st.markdown(
+                render_panel(
+                    "",
+                    f'<ul class="ui-panel-copy" style="padding-left:1.1rem;margin:0;">{takeaway_html}</ul>',
+                    tone="accent",
+                ),
+                unsafe_allow_html=True,
+            )
+
+    st.stop()
 
 
 # ============================================================
@@ -477,82 +799,347 @@ if is_admin:
 
 if team_id:
     team = challenge_state.get_team(team_id)
-    
+
     if team is None:
-        st.error("🚫 Team-ID nicht gefunden. Bitte neu registrieren.")
+        render_message_panel("Team nicht gefunden", "Diese Team-ID ist nicht mehr gueltig. Bitte registrieren Sie sich erneut.", tone="danger")
         if st.button("Zur Registrierung"):
             st.query_params.clear()
             st.rerun()
         st.stop()
-    
-    current_phase = challenge_state.get_phase()
-    
-    st.title(f"🏭 Bearing Challenge")
-    st.subheader(f"Team: **{team['name']}**")
-    st.markdown("---")
-    
-    # Auto-Refresh in Warte-Phasen.
-    # Nach dem Absenden sollen Teams den Phasenwechsel ebenfalls ohne manuelles Reload sehen.
-    should_team_autorefresh = (
-        current_phase in ["registration", "training"]
-        or (current_phase == "feature_selection" and team["submitted"])
+
+    # Teamgesteuerter Ablauf: Der Team-Fortschritt wird nicht mehr global freigeschaltet,
+    # sondern aus dem individuellen Teamstatus abgeleitet.
+    team_result = challenge_state.get_team_result(team_id)
+    if not team.get("submitted"):
+        current_phase = "feature_selection"
+    elif team_result is None:
+        current_phase = "training"
+    else:
+        current_phase = "results"
+    st.markdown(
+        render_page_header(
+            "Hoersaaluebung Mustererkennung - Teamportal",
+            f"Team {team['name']} ist fuer die Classroom-Challenge angemeldet.",
+            eyebrow="Teamansicht",
+            tagline="Science for the real World",
+            side_label="Ihr Team",
+            side_title=team["name"],
+            side_copy="Diese Ansicht fuehrt das Team Schritt fuer Schritt durch die Challenge und zeigt nur die jeweils relevanten Aktionen.",
+            side_items=[
+                f"Phase: {current_phase.replace('_', ' ').title()}",
+                "Genau vier Features waehlen",
+                "Training selbst ausloesen",
+            ],
+            variant="team",
+            utility_context="Probevorlesung - Julian Koch",
+        ),
+        unsafe_allow_html=True,
     )
+    st.markdown(
+        render_metric_grid(
+            [
+                {"label": "Team", "value": team["name"]},
+                {"label": "Phase", "value": current_phase.replace("_", " ").title()},
+            ]
+        ),
+        unsafe_allow_html=True,
+    )
+
+    should_team_autorefresh = False
     if should_team_autorefresh and HAS_AUTOREFRESH:
         st_autorefresh(interval=3000, key="team_refresh")
-    
-    # ======== Phase: Registrierung (Warten) ========
-    if current_phase == "registration":
-        st.info("✋ Willkommen! Warte auf den Dozenten, um die Feature-Auswahl zu starten...")
-        
-        teams_count = len(challenge_state.get_all_teams())
-        st.metric("Registrierte Teams", teams_count)
-    
-    # ======== Phase: Feature-Auswahl ========
-    elif current_phase == "feature_selection":
+
+    if current_phase == "feature_selection":
+        st.markdown(
+            render_panel(
+                "Lernziel",
+                (
+                    '<p class="ui-panel-copy">'
+                    "Verstehen, warum die <strong>Feature-Auswahl</strong> die Modellqualitaet bestimmt. "
+                    "Untersuchen Sie die Verteilungen der Features &ndash; ein gutes Feature zeigt "
+                    "<strong>klar unterschiedliche Werte je Fehlerklasse</strong>."
+                    "</p>"
+                    '<p class="ui-panel-copy" style="margin-top:0.5rem;">'
+                    "Tipp: Schauen Sie sich die Boxplots und Histogramme an, bevor Sie waehlen. "
+                    "Vermeiden Sie redundante Features (z.&thinsp;B. zwei Features, die fast dasselbe messen)."
+                    "</p>"
+                ),
+                tone="accent",
+            ),
+            unsafe_allow_html=True,
+        )
+
         if team["submitted"]:
-            st.success("✅ Feature-Auswahl erfolgreich abgeschickt!")
-            st.info(f"**Gewählte Features:** {', '.join(team['selected_features'])}")
-            st.markdown("Warte auf die anderen Teams und das Training...")
-        
+            submitted_body = (
+                '<div class="state-card">'
+                '<div class="state-card-title">Auswahl eingereicht</div>'
+                '<div class="state-card-copy">Die Merkmalsauswahl wurde gespeichert. Die Ansicht aktualisiert sich automatisch, sobald die naechste Phase beginnt.</div>'
+                "</div>"
+                f"{render_tag_list(team['selected_features'], variant='accent')}"
+            )
+            st.markdown(render_panel("Gespeicherte Features", submitted_body, tone="success"), unsafe_allow_html=True)
         else:
-            st.markdown("### 🔧 Wähle 4 Features aus")
-            
-            # Datenexploration (Expander)
-            with st.expander("📊 Rohdaten ansehen", expanded=False):
+            st.markdown(
+                render_section_heading(
+                    "Feature-Auswahl",
+                    "Waehlen Sie genau vier Merkmale fuer das Teammodell aus.",
+                ),
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                render_panel(
+                    "Hinweis",
+                    '<p class="ui-panel-copy">Die Auswahl kann erst abgesendet werden, wenn genau vier Features markiert sind.</p>',
+                    tone="muted",
+                ),
+                unsafe_allow_html=True,
+            )
+
+            # ----------------------------------------------------------
+            # Schritt 1: Daten erkunden (vor der Auswahl)
+            # ----------------------------------------------------------
+            with st.expander("Schritt 1: Daten und Features erkunden", expanded=True):
+                X_source = X_all
+                y_source = y_all
+
+                st.markdown(
+                    render_metric_grid(
+                        [
+                            {"label": "Datensatz", "value": "Gesamt (Train + Test)"},
+                            {"label": "Segmente", "value": len(X_source)},
+                            {"label": "Features gesamt", "value": len(FEATURE_NAMES)},
+                        ]
+                    ),
+                    unsafe_allow_html=True,
+                )
+
+                st.markdown(
+                    render_section_heading(
+                        "Rohdaten anschauen",
+                        "Signal und FFT eines gewaehlten Segments aus dem Gesamtdatensatz.",
+                    ),
+                    unsafe_allow_html=True,
+                )
                 selected_class = st.selectbox(
                     "Fehlerklasse:",
                     CLASS_NAMES,
-                    key="explore_class"
+                    key=f"explore_class_{team_id}",
                 )
                 class_idx = CLASS_NAMES.index(selected_class)
-                mask = y_train == class_idx
-                class_segments = X_train[mask]
-                
-                segment_idx = st.slider("Segment-Nr.:", 0, len(class_segments)-1, 0, key="explore_seg")
+                class_segments = X_source[y_source == class_idx]
+                segment_idx = st.slider(
+                    "Segment-Nr.:",
+                    0,
+                    len(class_segments) - 1,
+                    0,
+                    key=f"explore_seg_{team_id}",
+                )
                 signal = class_segments[segment_idx]
                 color = get_class_color(selected_class)
-                
-                fig_explore = plot_signal_and_fft(signal, selected_class, color)
-                st.plotly_chart(fig_explore, use_container_width=True)
-            
-            # Feature-Auswahl
-            st.markdown("###")
-            
-            # Session State für ausgewählte Features
-            if "selected_features" not in st.session_state:
-                st.session_state["selected_features"] = set()
-            
-            selected = st.session_state["selected_features"]
-            
-            # Counter
-            st.markdown(f"**{len(selected)}/4 Features ausgewählt**")
-            st.progress(len(selected) / 4)
-            
-            # Feature-Karten (Grid)
-            st.markdown("###")
-            cols_per_row = 3
+                fig_explore = plot_signal_and_fft(
+                    signal,
+                    f"{selected_class} (Gesamt)",
+                    color,
+                )
+                st.plotly_chart(fig_explore, width="stretch")
+
+                with st.expander("Featurewerte fuer dieses Segment", expanded=False):
+                    segment_features = extract_all_features(signal.reshape(1, -1)).iloc[0]
+                    segment_table = [
+                        {"Feature": feat, "Wert": float(segment_features[feat])}
+                        for feat in FEATURE_NAMES
+                    ]
+                    st.dataframe(segment_table, width="stretch", hide_index=True)
+
+                st.markdown(
+                    render_section_heading(
+                        "Alle Features vergleichen",
+                        "Verteilung eines Features ueber alle Klassen im Gesamtdatensatz.",
+                    ),
+                    unsafe_allow_html=True,
+                )
+                feature_df = get_feature_overview()
+                feature_to_compare = st.selectbox(
+                    "Feature fuer Klassenvergleich:",
+                    FEATURE_NAMES,
+                    key=f"feature_compare_{team_id}",
+                )
+
+                fig_feature = go.Figure()
+                for class_name in CLASS_NAMES:
+                    class_values = feature_df.loc[
+                        feature_df["class_name"] == class_name,
+                        feature_to_compare,
+                    ]
+                    fig_feature.add_trace(
+                        go.Box(
+                            y=class_values,
+                            name=class_name,
+                            boxmean=True,
+                        )
+                    )
+                fig_feature.update_layout(
+                    **get_plotly_layout(
+                        title=f"{feature_to_compare} nach Klasse (Gesamt)",
+                        yaxis_title=feature_to_compare,
+                        xaxis_title="Klasse",
+                        height=430,
+                    )
+                )
+                st.plotly_chart(fig_feature, width="stretch")
+
+                st.markdown(
+                    render_section_heading(
+                        "Notebook-Ansicht: Alle Features",
+                        "Verteilungen aller 12 Features nach Klassen als Grundlage fuer die Auswahl.",
+                    ),
+                    unsafe_allow_html=True,
+                )
+                n_cols = 4
+                n_rows = int(np.ceil(len(FEATURE_NAMES) / n_cols))
+                fig_hist = make_subplots(
+                    rows=n_rows,
+                    cols=n_cols,
+                    subplot_titles=FEATURE_NAMES,
+                )
+                for feat_idx, feature_name in enumerate(FEATURE_NAMES):
+                    row_idx = feat_idx // n_cols + 1
+                    col_idx = feat_idx % n_cols + 1
+                    for class_name in CLASS_NAMES:
+                        values = feature_df.loc[
+                            feature_df["class_name"] == class_name,
+                            feature_name,
+                        ]
+                        fig_hist.add_trace(
+                            go.Histogram(
+                                x=values,
+                                name=class_name,
+                                opacity=0.45,
+                                showlegend=(feat_idx == 0),
+                                nbinsx=30,
+                            ),
+                            row=row_idx,
+                            col=col_idx,
+                        )
+                fig_hist.update_layout(
+                    **get_plotly_layout(
+                        title="Feature-Verteilungen (alle 12 Features, Gesamt)",
+                        barmode="overlay",
+                        height=max(680, 240 * n_rows),
+                    )
+                )
+                st.plotly_chart(fig_hist, width="stretch")
+
+                st.markdown(
+                    render_panel(
+                        "Korrelationshinweis",
+                        (
+                            '<p class="ui-panel-copy">'
+                            "<strong>RMS</strong> und <strong>Standardabweichung</strong> sind bei nullmitteligen Signalen "
+                            "(z.&thinsp;B. nach Z-Score-Normalisierung) mathematisch nahezu identisch. "
+                            "Beide gleichzeitig zu waehlen verschwendet einen Feature-Platz &ndash; "
+                            "entscheiden Sie sich fuer eines der beiden."
+                            "</p>"
+                        ),
+                        tone="warning",
+                    ),
+                    unsafe_allow_html=True,
+                )
+
+                st.markdown(
+                    render_section_heading(
+                        "Notebook-Ansicht: 2D-Feature-Projektion",
+                        "PCA-Projektion aller 12 Features zur Klassen-Trennung.",
+                    ),
+                    unsafe_allow_html=True,
+                )
+                pca_df, explained = get_feature_projection()
+                fig_pca = go.Figure()
+                for class_name in CLASS_NAMES:
+                    class_points = pca_df[pca_df["class_name"] == class_name]
+                    fig_pca.add_trace(
+                        go.Scatter(
+                            x=class_points["pc1"],
+                            y=class_points["pc2"],
+                            mode="markers",
+                            name=class_name,
+                            marker=dict(size=7, opacity=0.65),
+                        )
+                    )
+                fig_pca.update_layout(
+                    **get_plotly_layout(
+                        title=f"PCA (Gesamt) - Varianz: PC1 {explained[0]*100:.1f}%, PC2 {explained[1]*100:.1f}%",
+                        xaxis_title="PC1",
+                        yaxis_title="PC2",
+                        height=460,
+                    )
+                )
+                st.plotly_chart(fig_pca, width="stretch")
+
+            # ----------------------------------------------------------
+            # Schritt 2: Features auswaehlen
+            # ----------------------------------------------------------
+            st.markdown(
+                render_section_heading(
+                    "Schritt 2: Features auswaehlen",
+                    "Waehlen Sie auf Basis Ihrer Analyse genau vier Merkmale aus.",
+                ),
+                unsafe_allow_html=True,
+            )
+
+            recommended_features = [
+                "Spektraler Schwerpunkt",
+                "Spektrale Bandbreite",
+                "Dominante Frequenz",
+                "Mittlere Frequenz",
+            ]
+            if st.button("Dozenten-Vorschlag laden", width="stretch", key=f"load_recommendation_{team_id}"):
+                for feat_name in FEATURE_NAMES:
+                    st.session_state[f"feat_{team_id}_{feat_name}"] = feat_name in recommended_features
+                st.session_state[f"selected_features_{team_id}"] = list(recommended_features)
+                render_message_panel(
+                    "Vorschlag geladen",
+                    "Die empfohlene 4er-Auswahl wurde vorselektiert.",
+                    tone="success",
+                )
+                st.rerun()
+
+            selection_key = f"selected_features_{team_id}"
+            if selection_key not in st.session_state:
+                st.session_state[selection_key] = []
+            elif isinstance(st.session_state[selection_key], set):
+                # Rueckwaertskompatibel: alte Session-Daten von set -> list.
+                st.session_state[selection_key] = sorted(st.session_state[selection_key])
+
+            persisted_selected = set(st.session_state[selection_key])
+            for feat_name in FEATURE_NAMES:
+                feat_key = f"feat_{team_id}_{feat_name}"
+                if feat_key not in st.session_state:
+                    st.session_state[feat_key] = feat_name in persisted_selected
+
+            selected = [
+                feat_name for feat_name in FEATURE_NAMES
+                if st.session_state.get(f"feat_{team_id}_{feat_name}", False)
+            ]
+            selected_set = set(selected)
+            selected_count = len(selected)
+            st.session_state[selection_key] = selected
+            st.markdown(
+                render_metric_grid(
+                    [
+                        {"label": "Ausgewaehlt", "value": selected_count},
+                        {"label": "Noch offen", "value": max(0, 4 - selected_count)},
+                        {"label": "Verfuegbar", "value": len(FEATURE_NAMES)},
+                    ]
+                ),
+                unsafe_allow_html=True,
+            )
+            if selected:
+                st.markdown(render_tag_list(selected, variant="accent"), unsafe_allow_html=True)
+            st.progress(min(1.0, selected_count / 4))
+
+            cols_per_row = 2
             feature_list = FEATURE_NAMES
-            
             for i in range(0, len(feature_list), cols_per_row):
                 cols = st.columns(cols_per_row)
                 for j, col in enumerate(cols):
@@ -562,168 +1149,400 @@ if team_id:
                     
                     feat_name = feature_list[idx]
                     feat_info = FEATURE_INFO[feat_name]
-                    
-                    with col:
-                        is_selected = feat_name in selected
-                        
-                        # Checkbox
-                        checked = st.checkbox(
-                            f"{feat_info['icon']} **{feat_name}**",
-                            value=is_selected,
-                            key=f"feat_{feat_name}",
-                            disabled=(len(selected) >= 4 and not is_selected),
+                    redundancy_hint = ""
+                    if feat_name == "RMS":
+                        redundancy_hint = (
+                            '<div style="margin-top:0.35rem;font-size:0.78rem;color:#7a5410;">'
+                            '⚠ Nahezu identisch mit Standardabweichung</div>'
                         )
-                        
-                        # Update Selection
-                        if checked and feat_name not in selected:
-                            if len(selected) < 4:
-                                selected.add(feat_name)
-                        elif not checked and feat_name in selected:
-                            selected.remove(feat_name)
-                        
-                        # Info-Expander
-                        with st.expander("ℹ️ Details"):
-                            st.markdown(f"**{feat_info['name_de']}**")
-                            st.markdown(f"*{feat_info['domain']}*")
-                            st.latex(feat_info['formula'])
-                            st.caption(feat_info['description'])
-                            st.caption(f"💡 {feat_info['intuition']}")
-            
-            # Submit-Button
-            st.markdown("###")
+                    elif feat_name == "Standardabweichung":
+                        redundancy_hint = (
+                            '<div style="margin-top:0.35rem;font-size:0.78rem;color:#7a5410;">'
+                            '⚠ Nahezu identisch mit RMS</div>'
+                        )
+                    with col:
+                        is_selected = feat_name in selected_set
+                        with st.container(border=True):
+                            st.markdown(
+                                (
+                                    '<div class="feature-card-shell">'
+                                    '<div class="feature-card-heading">'
+                                    f'<div class="feature-card-domain">{escape(feat_info["domain"])}</div>'
+                                    f'<div class="feature-card-title">{escape(feat_name)}</div>'
+                                    f'<div class="feature-card-copy">{escape(feat_info["description"])}</div>'
+                                    f'{redundancy_hint}'
+                                    "</div>"
+                                    "</div>"
+                                ),
+                                unsafe_allow_html=True,
+                            )
+                            checked = st.checkbox(
+                                "Auswaehlen",
+                                key=f"feat_{team_id}_{feat_name}",
+                                disabled=(selected_count >= 4 and not is_selected),
+                            )
+                            with st.expander("Details", expanded=False):
+                                st.markdown(f"**{feat_info['name_de']}**")
+                                st.caption(feat_info["domain"])
+                                st.latex(feat_info["formula"])
+                                st.caption(feat_info["intuition"])
+                                st.caption(f"Geeignet fuer: {feat_info['useful_for']}")
+                        # checked wird absichtlich nicht inkrementell verarbeitet.
+                        # Die Auswahl wird robust aus st.session_state rekonstruiert.
+                        _ = checked
+
+            selected = [
+                feat_name for feat_name in FEATURE_NAMES
+                if st.session_state.get(f"feat_{team_id}_{feat_name}", False)
+            ]
+            st.session_state[selection_key] = selected
+
             if len(selected) == 4:
-                if st.button("✅ Auswahl abschicken", type="primary", use_container_width=True):
+                if st.button("Auswahl abschicken", type="primary", width="stretch"):
                     try:
-                        challenge_state.submit_features(team_id, list(selected))
-                        st.success("✅ Feature-Auswahl erfolgreich abgeschickt!")
+                        chosen_features = list(selected)
+                        challenge_state.submit_features(team_id, chosen_features)
+                        st.session_state.pop(selection_key, None)
+                        for feat_name in FEATURE_NAMES:
+                            st.session_state.pop(f"feat_{team_id}_{feat_name}", None)
+                        render_message_panel("Auswahl gespeichert", "Die vier Features wurden erfolgreich uebermittelt.", tone="success")
                         time.sleep(1)
                         st.rerun()
                     except Exception as e:
-                        st.error(f"❌ Fehler: {e}")
+                        render_message_panel("Fehler bei der Abgabe", str(e), tone="danger")
             else:
-                st.warning(f"⚠️ Bitte wähle genau 4 Features (aktuell: {len(selected)}).")
-    
-    # ======== Phase: Training (Warten) ========
+                render_message_panel(
+                    "Auswahl unvollstaendig",
+                    f"Bitte waehlen Sie genau vier Features aus. Aktuell sind {len(selected)} markiert.",
+                    tone="warning",
+                )
+
     elif current_phase == "training":
-        st.info("⚙️ Die Modelle werden trainiert... Bitte warten!")
-        with st.spinner("Training läuft..."):
+        training_body = (
+            '<div class="state-card">'
+            '<div class="state-card-title">Bereit fuer Training</div>'
+            '<div class="state-card-copy">Sobald Sie trainieren, werden Ihre Ergebnisse berechnet und direkt angezeigt.</div>'
+            "</div>"
+        )
+        st.markdown(render_panel("Status", training_body, tone="accent"), unsafe_allow_html=True)
+        st.markdown(
+            render_panel(
+                "Modell-Info",
+                (
+                    '<p class="ui-panel-copy">'
+                    "Ihr Team-Modell ist ein Random-Forest-Klassifikator. Es nutzt genau die vier von Ihnen gewaehlten Features."
+                    "</p>"
+                    '<p class="ui-panel-copy" style="margin-top:0.55rem;">'
+                    "Trainingsdaten und Testdaten sind fest vorgegeben, damit alle Teams unter denselben Bedingungen verglichen werden."
+                    "</p>"
+                    '<p class="ui-panel-copy" style="margin-top:0.55rem;">'
+                    "Ausgegeben werden F1-Score, Accuracy, Konfusionsmatrix und Feature-Importances."
+                    "</p>"
+                ),
+                tone="muted",
+            ),
+            unsafe_allow_html=True,
+        )
+        with st.expander("Was passiert mit den Daten?", expanded=False):
+            st.markdown(
+                render_panel(
+                    "",
+                    (
+                        '<ol class="ui-panel-copy" style="margin:0; padding-left:1.1rem;">'
+                        '<li>Aus den Rohsignalen werden die ausgewaehlten Features berechnet.</li>'
+                        '<li>Das Modell wird auf dem Trainingsdatensatz trainiert (gleiche Einstellungen fuer alle Teams).</li>'
+                        '<li>Danach erfolgt die Bewertung auf getrennten Testdaten.</li>'
+                        '<li>Die Ergebnisse werden teamweise gespeichert und im Leaderboard angezeigt.</li>'
+                        '</ol>'
+                    ),
+                    tone="muted",
+                ),
+                unsafe_allow_html=True,
+            )
+
+        teams_all = challenge_state.get_all_teams()
+        submitted_teams = [
+            tid for tid, team_item in teams_all.items()
+            if team_item.get("submitted") and team_item.get("selected_features")
+        ]
+        trained_teams = [
+            tid for tid in submitted_teams
+            if challenge_state.get_team_result(tid) is not None
+        ]
+        st.markdown(
+            render_metric_grid(
+                [
+                    {"label": "Abgegeben (gesamt)", "value": len(submitted_teams)},
+                    {"label": "Schon trainiert", "value": len(trained_teams)},
+                    {"label": "Ihr Status", "value": "Ausstehend"},
+                ]
+            ),
+            unsafe_allow_html=True,
+        )
+
+        if st.button("Eigenes Modell jetzt trainieren", type="primary", width="stretch", key=f"team_train_{team_id}"):
+            with st.spinner("Ihr Modell wird trainiert..."):
+                challenge_state.run_team_training(team_id, X_train, y_train, X_test, y_test)
+            render_message_panel("Training abgeschlossen", "Ihr Team-Ergebnis ist jetzt verfuegbar.", tone="success")
             time.sleep(1)
-    
-    # ======== Phase: Ergebnisse ========
+            st.rerun()
+
     elif current_phase == "results":
         result = challenge_state.get_team_result(team_id)
-        
         if result is None:
-            st.warning("⚠️ Noch keine Ergebnisse verfügbar.")
+            render_message_panel("Noch keine Ergebnisse", "Das Training ist noch nicht abgeschlossen.", tone="warning")
         else:
-            st.success("🎉 Training abgeschlossen!")
-            
-            # Eigenes Ergebnis
             leaderboard = challenge_state.get_leaderboard()
             my_rank = next((e["rank"] for e in leaderboard if e["team_id"] == team_id), None)
-            
-            col1, col2, col3 = st.columns(3)
-            col1.metric("F1-Score", f"{result['f1_macro']*100:.2f}%")
-            col2.metric("Accuracy", f"{result['accuracy']*100:.2f}%")
-            col3.metric("Rang", f"{my_rank}/{len(leaderboard)}" if my_rank else "—")
-            
-            # Konfusionsmatrix
-            st.markdown("###")
-            with st.expander("📊 Konfusionsmatrix", expanded=False):
+            optimal = challenge_state.get_optimal_result()
+
+            st.markdown(
+                render_panel(
+                    "Training abgeschlossen",
+                    '<p class="ui-panel-copy">Ihr Modell wurde erfolgreich ausgewertet. Unten sehen Sie die wichtigsten Kennzahlen und das globale Leaderboard.</p>',
+                    tone="success",
+                ),
+                unsafe_allow_html=True,
+            )
+
+            # --- Benchmark comparison ---
+            team_metrics = [
+                {"label": "Ihr F1-Score", "value": format_percent(result["f1_macro"])},
+                {"label": "Ihre Accuracy", "value": format_percent(result["accuracy"])},
+                {"label": "Rang", "value": f"{my_rank}/{len(leaderboard)}" if my_rank else "-"},
+            ]
+            if optimal:
+                team_metrics.append({"label": "Benchmark (alle 12)", "value": format_percent(optimal["f1_macro"])})
+            st.markdown(render_metric_grid(team_metrics), unsafe_allow_html=True)
+
+            if optimal:
+                delta = result["f1_macro"] - optimal["f1_macro"]
+                if delta >= -0.02:
+                    bench_tone = "success"
+                    bench_text = (
+                        "Ihr Modell mit nur 4 Features erreicht nahezu die Leistung des Referenzmodells "
+                        "mit allen 12 Features. Eine exzellente Feature-Auswahl!"
+                    )
+                elif delta >= -0.10:
+                    bench_tone = "accent"
+                    bench_text = (
+                        f"Ihr Modell liegt {abs(delta)*100:.1f} Prozentpunkte unter dem Referenzmodell (alle 12 Features). "
+                        "Ueberlegen Sie, ob ein anderes Feature mehr Trennschaerfe geboten haette."
+                    )
+                else:
+                    bench_tone = "warning"
+                    bench_text = (
+                        f"Ihr Modell liegt {abs(delta)*100:.1f} Prozentpunkte unter dem Referenzmodell. "
+                        "Moeglicherweise fehlen Ihrem Set entscheidende Features &ndash; "
+                        "vergleichen Sie die Feature-Importances mit den Boxplots aus der Exploration."
+                    )
+                st.markdown(
+                    render_panel("Vergleich mit Referenzmodell", f'<p class="ui-panel-copy">{bench_text}</p>', tone=bench_tone),
+                    unsafe_allow_html=True,
+                )
+
+            # --- Confusion matrix with interpretive guidance ---
+            with st.expander("Konfusionsmatrix", expanded=True):
                 fig_cm = plot_confusion_matrix(result["confusion_matrix"])
-                st.plotly_chart(fig_cm, use_container_width=True)
-            
-            # Feature Importances
-            with st.expander("📈 Feature Importances", expanded=False):
+                st.plotly_chart(fig_cm, width="stretch")
+
+                cm_array = np.asarray(result["confusion_matrix"], dtype=float)
+                row_sums = cm_array.sum(axis=1)
+                row_sums[row_sums == 0] = 1.0
+                misclassification_pairs = []
+                for r in range(cm_array.shape[0]):
+                    for c in range(cm_array.shape[1]):
+                        if r != c and cm_array[r, c] / row_sums[r] > 0.10:
+                            misclassification_pairs.append(
+                                (CLASS_NAMES[r], CLASS_NAMES[c], cm_array[r, c] / row_sums[r] * 100)
+                            )
+                if misclassification_pairs:
+                    hints = "".join(
+                        f"<li><strong>{true_cls}</strong> wird in {pct:.0f}% der Faelle als <strong>{pred_cls}</strong> fehlklassifiziert.</li>"
+                        for true_cls, pred_cls, pct in sorted(misclassification_pairs, key=lambda x: -x[2])
+                    )
+                    st.markdown(
+                        render_panel(
+                            "Interpretationshilfe",
+                            (
+                                '<p class="ui-panel-copy">Haeufige Verwechslungen Ihres Modells:</p>'
+                                f'<ul class="ui-panel-copy" style="margin-top:0.4rem;padding-left:1.1rem;">{hints}</ul>'
+                                '<p class="ui-panel-copy" style="margin-top:0.5rem;">'
+                                "Klassen, die verwechselt werden, haben aehnliche Merkmalswerte in Ihren gewaehlten Features. "
+                                "Ein zusaetzliches Feature, das diese Klassen trennt, wuerde die Leistung verbessern."
+                                "</p>"
+                            ),
+                            tone="muted",
+                        ),
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    st.markdown(
+                        render_panel(
+                            "Interpretationshilfe",
+                            '<p class="ui-panel-copy">Keine groesseren Verwechslungen &ndash; Ihr Feature-Set trennt die Klassen gut.</p>',
+                            tone="success",
+                        ),
+                        unsafe_allow_html=True,
+                    )
+
+            # --- Feature importances with reflection ---
+            with st.expander("Feature-Wichtigkeit & Reflexion", expanded=True):
                 fig_fi = plot_feature_importances(
                     result["feature_importances"],
                     result["feature_names"],
                     f"Feature Importances — {team['name']}"
                 )
-                st.plotly_chart(fig_fi, use_container_width=True)
-            
-            # Link zum Leaderboard
-            st.markdown("---")
-            st.markdown("### 🏆 Leaderboard")
-            
-            rows = []
-            for entry in leaderboard:
-                rank_emoji = render_rank_emoji(entry["rank"])
-                rows.append({
-                    "Rang": rank_emoji,
-                    "Team": entry["team_name"],
-                    "F1-Score": f"{entry['f1_macro']*100:.2f}%",
-                    "Accuracy": f"{entry['accuracy']*100:.2f}%",
-                })
-            
-            df = pd.DataFrame(rows)
-            st.dataframe(df, use_container_width=True, hide_index=True)
-    
-    st.stop()  # Team-View endet hier
+                st.plotly_chart(fig_fi, width="stretch")
+
+                importances = np.asarray(result["feature_importances"], dtype=float)
+                feat_names = np.asarray(result["feature_names"])
+                top_feat = feat_names[np.argmax(importances)]
+                low_feat = feat_names[np.argmin(importances)]
+                st.markdown(
+                    render_panel(
+                        "Reflexion",
+                        (
+                            '<p class="ui-panel-copy">'
+                            f"Ihr wichtigstes Feature war <strong>{escape(str(top_feat))}</strong>, "
+                            f"waehrend <strong>{escape(str(low_feat))}</strong> am wenigsten beigetragen hat."
+                            "</p>"
+                            '<p class="ui-panel-copy" style="margin-top:0.5rem;">'
+                            "Vergleichen Sie das mit Ihrer urspruenglichen Einschaetzung: "
+                            "Haetten Sie anhand der Boxplots vorhergesagt, welches Feature am wichtigsten sein wuerde?"
+                            "</p>"
+                        ),
+                        tone="muted",
+                    ),
+                    unsafe_allow_html=True,
+                )
+
+            st.markdown(render_section_heading("Leaderboard", "Vergleich aller Teams in dieser Runde."), unsafe_allow_html=True)
+            st.markdown(render_leaderboard(leaderboard, include_time=True, include_features=True), unsafe_allow_html=True)
+
+            # --- Takeaways ---
+            with st.expander("Was nehme ich mit?", expanded=False):
+                my_features = team.get("selected_features") or []
+                takeaway_lines = [
+                    "Die <strong>Feature-Auswahl</strong> bestimmt massgeblich, wie gut ein ML-Modell Klassen unterscheiden kann.",
+                    "Features, die in den Boxplots klar unterschiedliche Verteilungen pro Klasse zeigen, sind in der Regel die besten Kandidaten.",
+                    "Redundante Features (z.B. RMS &amp; Standardabweichung bei nullmitteligen Signalen) bringen kaum Zusatzinformation.",
+                    "Die <strong>Konfusionsmatrix</strong> zeigt nicht nur <em>ob</em> Fehler auftreten, sondern <em>welche</em> Klassen verwechselt werden &ndash; das gibt Hinweise auf fehlende Merkmale.",
+                    "Feature-Importances zeigen, welches Ihrer Features am meisten zur Trennung beigetragen hat &ndash; vergleichen Sie das mit Ihrer urspruenglichen Einschaetzung.",
+                ]
+                if optimal:
+                    takeaway_lines.append(
+                        f"Das Referenzmodell mit allen 12 Features erreicht F1 = {optimal['f1_macro']*100:.1f}%. "
+                        "Wenige, gut gewaehlte Features koennen einen Grossteil dieser Leistung abdecken."
+                    )
+                takeaway_html = "".join(f"<li>{line}</li>" for line in takeaway_lines)
+                st.markdown(
+                    render_panel(
+                        "Kernerkenntnisse",
+                        f'<ul class="ui-panel-copy" style="padding-left:1.1rem;margin:0;">{takeaway_html}</ul>',
+                        tone="accent",
+                    ),
+                    unsafe_allow_html=True,
+                )
+
+    st.stop()
 
 
 # ============================================================
 # VIEW: Registrierung (Default)
 # ============================================================
 
-st.title("🏭 Bearing Challenge")
-st.subheader("Wälzlager-Diagnose mit Machine Learning")
-
-st.markdown("""
-Willkommen zur **Bearing Challenge**! In dieser interaktiven Übung tretet ihr als Team
-gegeneinander an, indem ihr die besten Features zur Klassifikation von Wälzlager-Fehlern auswählt.
-
-**Ablauf:**
-1. **Registrierung:** Gebt euren Teamnamen ein
-2. **Feature-Auswahl:** Wählt 4 aus 12 verfügbaren Features
-3. **Training:** Ein Random-Forest-Modell wird automatisch trainiert
-4. **Ergebnisse:** Seht eure Performance im Leaderboard!
-""")
-
-st.markdown("---")
+st.markdown(
+    render_page_header(
+        "Hoersaaluebung Mustererkennung",
+        "Interaktive Classroom-Challenge zur Klassifikation von Waelzlagerfehlern mit Machine Learning.",
+        tagline="Science for the real World",
+        side_label="Auf einen Blick",
+        side_title="Ablauf",
+        side_copy="",
+        side_items=[
+            "Team registrieren",
+            "Persoenlichen Link erhalten",
+            "Vier Features waehlen",
+            "Ergebnisse vergleichen",
+        ],
+        variant="public",
+        utility_context="Probevorlesung - Julian Koch",
+    ),
+    unsafe_allow_html=True,
+)
 
 current_phase = challenge_state.get_phase()
 
-if current_phase != "registration":
-    st.warning("⚠️ Die Registrierung ist geschlossen. Die Challenge hat bereits begonnen.")
-    st.info("Falls du bereits registriert bist, verwende den Link, der dir angezeigt wurde.")
-    st.stop()
+form_col, info_col = st.columns([1.3, 1])
 
-# Registrierungs-Formular
-st.markdown("### 📝 Teamname eingeben")
+with form_col:
+    with st.container(border=True):
+        st.markdown(
+            (
+                '<div class="registration-form-title">Team registrieren</div>'
+                '<div class="registration-form-copy">Geben Sie einen Teamnamen ein. Nach dem Absenden wird automatisch der persoenliche Team-Link geoeffnet.</div>'
+            ),
+            unsafe_allow_html=True,
+        )
+        with st.form("registration_form", clear_on_submit=False):
+            team_name_input = st.text_input(
+                "Teamname (2-30 Zeichen):",
+                max_chars=30,
+                placeholder="z. B. Team Alpha",
+            )
+            submitted = st.form_submit_button("Team beitreten", type="primary", width="stretch")
 
-# Ein Formular übergibt Eingabewert und Submit atomar.
-# Das macht die Registrierung robuster als eine lose text_input/button-Kombination.
-with st.form("registration_form", clear_on_submit=False):
-    team_name_input = st.text_input(
-        "Teamname (2-30 Zeichen):",
-        max_chars=30,
-        placeholder="z.B. Team Alpha",
+with info_col:
+    teams_count = len(challenge_state.get_all_teams())
+    st.markdown(
+        render_panel(
+            "Aktueller Stand",
+            render_metric_grid(
+                [
+                    {"label": "Bereits registriert", "value": teams_count},
+                    {"label": "Verfuegbare Features", "value": len(FEATURE_NAMES)},
+                ]
+            ),
+            tone="muted",
+        ),
+        unsafe_allow_html=True,
     )
-    submitted = st.form_submit_button("🚀 Team beitreten", type="primary", use_container_width=True)
+    if is_demo:
+        st.markdown(
+            render_panel(
+                "Demo-Modus",
+                (
+                    '<p class="ui-panel-copy">'
+                    "Die Originaldaten basieren auf dem CWRU Bearing Dataset (Case Western Reserve University),"
+                    " einem etablierten Referenzdatensatz fuer ML/DL in der Zustandsdiagnose."
+                    "</p>"
+                    '<p class="ui-panel-copy" style="margin-top:0.55rem;">'
+                    "Erfasst wurden Schwingungsdaten eines 2-HP-Motorpruefstands mit kuenstlich eingebrachten"
+                    " Lagerfehlern (Innenring, Aussenring, Kugel) in mehreren Fehlergroessen und Lastpunkten."
+                    "</p>"
+                    '<p class="ui-panel-copy" style="margin-top:0.55rem;">'
+                    "Typische Struktur: Normalbetrieb sowie Drive-End/Fan-End-Fehler; Abtastraten 12 kHz und 48 kHz,"
+                    " MATLAB-Dateien mit Vibrationssignalen und Drehzahl."
+                    "</p>"
+                ),
+                tone="muted",
+            ),
+            unsafe_allow_html=True,
+        )
 
 if submitted:
     if len(team_name_input.strip()) < 2:
-        st.error("❌ Teamname muss mindestens 2 Zeichen lang sein.")
+        render_message_panel("Teamname zu kurz", "Der Teamname muss mindestens zwei Zeichen enthalten.", tone="danger")
     else:
         try:
             cleaned_name = team_name_input.strip()
             new_team_id = challenge_state.register_team(cleaned_name)
-            st.success(f"✅ Team '{cleaned_name}' erfolgreich registriert!")
+            render_message_panel("Registrierung erfolgreich", f"Das Team {cleaned_name} wurde angelegt. Der persoenliche Link wird jetzt geoeffnet.", tone="success")
             time.sleep(1)
 
-            # Redirect zur Team-Ansicht
             st.query_params["team"] = new_team_id
             st.rerun()
 
         except ValueError as e:
-            st.error(f"❌ {e}")
-
-# Live-Counter
-st.markdown("###")
-teams_count = len(challenge_state.get_all_teams())
-st.info(f"📊 **{teams_count} Teams** sind bereits registriert.")
-
-# Demo-Modus-Hinweis
-if is_demo:
-    st.caption("🔄 **Demo-Modus**: Synthetische Daten werden verwendet.")
+            render_message_panel("Registrierung fehlgeschlagen", str(e), tone="danger")
