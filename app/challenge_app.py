@@ -1341,6 +1341,107 @@ if team_id:
                     unsafe_allow_html=True,
                 )
 
+            # --- Model explanation: tree + voting ---
+            with st.expander("So entscheidet Ihr Modell", expanded=True):
+                tree_text = result.get("tree_text", "")
+                voting_examples = result.get("voting_examples", [])
+                n_estimators = result.get("n_estimators", 100)
+
+                if tree_text:
+                    st.markdown(
+                        render_panel(
+                            "Ein Entscheidungsbaum aus dem Wald",
+                            (
+                                '<p class="ui-panel-copy">'
+                                f"Ihr Random Forest besteht aus {n_estimators} Entscheidungsbaeumen. "
+                                "Jeder Baum stellt Fragen zu Ihren Features und leitet daraus eine Klasse ab. "
+                                "Hier sehen Sie <strong>einen</strong> dieser Baeume (gekuerzt auf 3 Ebenen):"
+                                "</p>"
+                            ),
+                            tone="muted",
+                        ),
+                        unsafe_allow_html=True,
+                    )
+                    st.code(tree_text, language=None)
+                    st.markdown(
+                        render_panel(
+                            "",
+                            (
+                                '<p class="ui-panel-copy">'
+                                "Lesen Sie den Baum von oben nach unten: An jedem Knoten wird ein Feature-Wert "
+                                "geprueft. Je nach Ergebnis geht es nach links (ja) oder rechts (nein), "
+                                "bis eine Klasse vorhergesagt wird."
+                                "</p>"
+                            ),
+                            tone="muted",
+                        ),
+                        unsafe_allow_html=True,
+                    )
+
+                if voting_examples:
+                    st.markdown(
+                        render_panel(
+                            "So stimmen die Baeume ab",
+                            (
+                                '<p class="ui-panel-copy">'
+                                f"Alle {n_estimators} Baeume geben unabhaengig eine Vorhersage ab. "
+                                "Die Klasse mit den meisten Stimmen gewinnt (Mehrheitsentscheid). "
+                                "Hier zwei Beispiele aus Ihren Testdaten:"
+                                "</p>"
+                            ),
+                            tone="muted",
+                        ),
+                        unsafe_allow_html=True,
+                    )
+                    vote_cols = st.columns(len(voting_examples))
+                    for col, example in zip(vote_cols, voting_examples):
+                        with col:
+                            is_correct = example["type"] == "correct"
+                            icon = "&#10004;" if is_correct else "&#10008;"
+                            label = "Korrekt klassifiziert" if is_correct else "Fehlklassifiziert"
+                            vote_class_names = example.get("class_names", CLASS_NAMES)
+                            vote_counts = example["vote_counts"]
+                            total_votes = sum(vote_counts)
+
+                            bar_colors = [
+                                "#2F7D4A" if cn == example["true_class"] else
+                                "#A13A38" if cn == example["predicted_class"] and not is_correct else
+                                HSB_PRIMARY
+                                for cn in vote_class_names
+                            ]
+                            fig_vote = go.Figure(go.Bar(
+                                x=vote_class_names,
+                                y=vote_counts,
+                                marker_color=bar_colors,
+                                text=[f"{v}" for v in vote_counts],
+                                textposition="auto",
+                            ))
+                            fig_vote.update_layout(
+                                **get_plotly_layout(
+                                    title=f"{icon} {label}",
+                                    yaxis_title="Stimmen",
+                                    xaxis_title="",
+                                    height=300,
+                                    margin=dict(l=40, r=20, t=50, b=40),
+                                )
+                            )
+                            st.plotly_chart(fig_vote, use_container_width=True)
+                            st.markdown(
+                                f'<p style="text-align:center;font-size:0.88rem;color:#495057;">'
+                                f'Wahrheit: <strong>{escape(example["true_class"])}</strong> &nbsp;|&nbsp; '
+                                f'Vorhersage: <strong>{escape(example["predicted_class"])}</strong>'
+                                f"</p>",
+                                unsafe_allow_html=True,
+                            )
+
+                if not tree_text and not voting_examples:
+                    render_message_panel(
+                        "Nicht verfuegbar",
+                        "Die Modellerklaerung ist fuer dieses Ergebnis nicht verfuegbar. "
+                        "Trainieren Sie das Modell erneut, um die Visualisierung zu sehen.",
+                        tone="muted",
+                    )
+
             # --- Confusion matrix with interpretive guidance ---
             with st.expander("Konfusionsmatrix", expanded=True):
                 fig_cm = plot_confusion_matrix(result["confusion_matrix"])

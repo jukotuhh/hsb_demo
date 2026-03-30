@@ -163,6 +163,78 @@ def evaluate_classical(
     }
 
 
+def extract_model_explanations(
+    model: Pipeline,
+    X_test_features: pd.DataFrame | np.ndarray,
+    y_test: np.ndarray,
+    class_names: list[str] | None = None,
+    tree_max_depth: int = 3,
+    n_voting_examples: int = 2,
+) -> dict:
+    """
+    Extracts interpretable explanations from a trained Random Forest pipeline:
+      - Text representation of a single decision tree (limited depth)
+      - Per-tree voting breakdowns for sample test instances
+    """
+    from sklearn.tree import export_text
+
+    if isinstance(X_test_features, pd.DataFrame):
+        feature_names = list(X_test_features.columns)
+        X = X_test_features.values
+    else:
+        X = X_test_features
+        feature_names = [f"Feature {i}" for i in range(X.shape[1])]
+
+    if class_names is None:
+        class_names = [str(i) for i in range(len(np.unique(y_test)))]
+
+    scaler = model.named_steps["scaler"]
+    rf = model.named_steps["classifier"]
+
+    # --- Single tree text (first estimator, limited depth) ---
+    representative_tree = rf.estimators_[0]
+    tree_text = export_text(
+        representative_tree,
+        feature_names=feature_names,
+        max_depth=tree_max_depth,
+        class_names=class_names,
+    )
+
+    # --- Voting examples ---
+    X_scaled = scaler.transform(X)
+    y_pred = rf.predict(X_scaled)
+
+    correct_mask = y_pred == y_test
+    wrong_mask = ~correct_mask
+
+    voting_examples = []
+
+    for label, mask in [("correct", correct_mask), ("misclassified", wrong_mask)]:
+        indices = np.where(mask)[0]
+        if len(indices) == 0:
+            continue
+        idx = int(indices[np.random.RandomState(42).randint(len(indices))])
+        sample = X_scaled[idx : idx + 1]
+        tree_predictions = np.array(
+            [tree.predict(sample)[0] for tree in rf.estimators_], dtype=int
+        )
+        vote_counts = [int(np.sum(tree_predictions == c)) for c in range(len(class_names))]
+        voting_examples.append({
+            "type": label,
+            "true_class": class_names[int(y_test[idx])],
+            "predicted_class": class_names[int(y_pred[idx])],
+            "vote_counts": vote_counts,
+            "class_names": class_names,
+        })
+
+    return {
+        "tree_text": tree_text,
+        "tree_depth": tree_max_depth,
+        "n_estimators": rf.n_estimators,
+        "voting_examples": voting_examples,
+    }
+
+
 def save_model(model: Pipeline, filepath: str) -> None:
     """Speichert das trainierte Modell als .pkl-Datei."""
     os.makedirs(os.path.dirname(filepath), exist_ok=True)

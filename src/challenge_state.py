@@ -41,7 +41,7 @@ from typing import Any
 import numpy as np
 
 from src.features import FEATURE_NAMES, extract_selected_features
-from src.classical_model import train_classical, evaluate_classical
+from src.classical_model import train_classical, evaluate_classical, extract_model_explanations
 from src.data_loader import CLASS_NAMES
 
 
@@ -98,6 +98,10 @@ def _save_state_to_disk():
                     "feature_importances": r["feature_importances"].tolist() if isinstance(r["feature_importances"], np.ndarray) else r["feature_importances"],
                     "feature_names": r["feature_names"],
                     "train_time": float(r["train_time"]),
+                    "tree_text": r.get("tree_text", ""),
+                    "tree_depth": r.get("tree_depth", 0),
+                    "n_estimators": r.get("n_estimators", 100),
+                    "voting_examples": r.get("voting_examples", []),
                 }
                 for tid, r in _STATE["results"].items()
             },
@@ -359,6 +363,14 @@ def run_team_training(team_id: str, X_train, y_train, X_test, y_test) -> dict:
             class_names=CLASS_NAMES,
         )
 
+        explanations = extract_model_explanations(
+            train_result["model"],
+            X_test_feat,
+            y_test,
+            class_names=CLASS_NAMES,
+            tree_max_depth=3,
+        )
+
         result_payload = {
             "f1_macro": eval_result["f1_macro"],
             "accuracy": eval_result["accuracy"],
@@ -366,6 +378,10 @@ def run_team_training(team_id: str, X_train, y_train, X_test, y_test) -> dict:
             "feature_importances": eval_result["feature_importances"],
             "feature_names": eval_result["feature_names"],
             "train_time": train_result["train_time"],
+            "tree_text": explanations["tree_text"],
+            "tree_depth": explanations["tree_depth"],
+            "n_estimators": explanations["n_estimators"],
+            "voting_examples": explanations["voting_examples"],
         }
         print(f"  ✓ F1={eval_result['f1_macro']:.4f}, Acc={eval_result['accuracy']:.4f}")
 
