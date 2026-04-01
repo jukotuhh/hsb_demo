@@ -810,7 +810,7 @@ if team_id:
     phase_hint = _PHASE_HINTS.get(current_phase, "")
     st.markdown(
         render_page_header(
-            "Hörsaalübung Mustererkennung",
+            "Hörsaalübung\nMustererkennung",
             f"Team {team['name']} ist für die Classroom-Challenge angemeldet.",
             eyebrow="Teamansicht",
             side_label="Ihr Team",
@@ -1505,7 +1505,7 @@ if team_id:
 
 st.markdown(
     render_page_header(
-        "Hörsaalübung Mustererkennung",
+        "Hörsaalübung\nMustererkennung",
         "Interaktive Classroom-Challenge zur Klassifikation von Wälzlagerfehlern mit Machine Learning.",
         side_label="Auf einen Blick",
         side_title="Ablauf",
