@@ -1043,8 +1043,8 @@ if team_id:
                             feature_df["class_name"] == class_name,
                             feature_name,
                         ].values
-                        ax.hist(vals, bins=30, alpha=0.5, label=class_name,
-                                color=_mpl_colors[class_name])
+                        ax.hist(vals, bins=30, histtype="step", linewidth=1.8,
+                                label=class_name, color=_mpl_colors[class_name])
                     ax.set_title(feature_name, fontsize=11, fontweight="bold",
                                  pad=6)
                     ax.tick_params(labelsize=9)
