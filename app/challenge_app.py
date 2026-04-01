@@ -937,6 +937,11 @@ if team_id:
                     ),
                     unsafe_allow_html=True,
                 )
+                st.caption(
+                    "💡 Ein **Segment** ist ein kurzer Ausschnitt (1 024 Messpunkte ≈ 85 ms) "
+                    "aus der langen Vibrationsmessung. Pro Fehlerklasse gibt es viele solcher "
+                    "Ausschnitte — mit dem Slider können Sie durch verschiedene Segmente blättern."
+                )
                 _filter_col1, _filter_col2 = st.columns(2)
                 with _filter_col1:
                     selected_class = st.selectbox(
