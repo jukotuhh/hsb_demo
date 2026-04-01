@@ -6,21 +6,20 @@ Dieses Modul berechnet Zeit- und Frequenzbereich-Features aus den
 segmentierten Vibrationssignalen. Diese Features dienen als Eingabe
 für klassische ML-Algorithmen (z.B. Random Forest).
 
-Zeitbereich-Features (8):
-    1. RMS (Root Mean Square)        — Effektivwert
-    2. Standardabweichung            — Streuung
-    3. Kurtosis                      — Wölbung (Spitzigkeit)
-    4. Schiefe (Skewness)            — Asymmetrie
-    5. Peak-to-Peak                  — Spitze-zu-Spitze-Wert
-    6. Scheitelfaktor (Crest Factor) — Verhältnis Spitzenwert / RMS
-    7. Formfaktor (Shape Factor)     — Verhältnis RMS / Mittelwert(|x|)
-    8. Impulsfaktor (Impulse Factor) — Verhältnis Spitzenwert / Mittelwert(|x|)
+Zeitbereich-Features (7):
+    1. Standardabweichung            — Streuung
+    2. Kurtosis                      — Wölbung (Spitzigkeit)
+    3. Schiefe (Skewness)            — Asymmetrie
+    4. Peak-to-Peak                  — Spitze-zu-Spitze-Wert
+    5. Scheitelfaktor (Crest Factor) — Verhältnis Spitzenwert / RMS
+    6. Formfaktor (Shape Factor)     — Verhältnis RMS / Mittelwert(|x|)
+    7. Impulsfaktor (Impulse Factor) — Verhältnis Spitzenwert / Mittelwert(|x|)
 
 Frequenzbereich-Features (4):
-    9.  Spektraler Schwerpunkt       — Mittlere Frequenz (gewichtet)
-    10. Spektrale Bandbreite         — Streuung im Frequenzbereich
-    11. Dominante Frequenz           — Frequenz mit max. Amplitude
-    12. Mittlere Frequenz            — Schwerpunkt des Leistungsspektrums
+    8.  Spektraler Schwerpunkt       — Mittlere Frequenz (gewichtet)
+    9.  Spektrale Bandbreite         — Streuung im Frequenzbereich
+    10. Dominante Frequenz           — Frequenz mit max. Amplitude
+    11. Mittlere Frequenz            — Schwerpunkt des Leistungsspektrums
 """
 
 import numpy as np
@@ -223,7 +222,6 @@ def mean_frequency(x: np.ndarray, fs: float = 12000.0) -> float:
 
 # Alle verfügbaren Features als geordnete Liste
 FEATURE_FUNCTIONS = [
-    ("RMS", rms),
     ("Standardabweichung", std_dev),
     ("Kurtosis", kurtosis_value),
     ("Schiefe", skewness_value),

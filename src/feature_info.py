@@ -2,7 +2,7 @@
 feature_info.py — Feature-Beschreibungen für die Classroom-Challenge
 ====================================================================
 
-Dieses Modul liefert strukturierte Metadaten zu jedem der 12 Features
+Dieses Modul liefert strukturierte Metadaten zu jedem der 11 Features
 aus features.py. Die Informationen werden in der Challenge-App für:
     - Tooltips bei Feature-Karten
     - Info-Expander mit Formeln und Erklärungen
@@ -18,15 +18,6 @@ from src.features import FEATURE_NAMES
 
 
 FEATURE_INFO = {
-    "RMS": {
-        "name_de": "Effektivwert (RMS)",
-        "domain": "Zeitbereich",
-        "formula": r"x_{\text{RMS}} = \sqrt{\frac{1}{N} \sum_{i=1}^{N} x_i^2}",
-        "description": "Misst die durchschnittliche Signalenergie. Erhöhte Werte deuten auf stärkere Vibrationen hin.",
-        "intuition": "Je lauter das Lager vibriert, desto höher der RMS.",
-        "useful_for": "Unterscheidung Normal ↔ Fehlerhaft",
-    },
-    
     "Standardabweichung": {
         "name_de": "Standardabweichung",
         "domain": "Zeitbereich",

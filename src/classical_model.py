@@ -163,6 +163,57 @@ def evaluate_classical(
     }
 
 
+def _extract_tree_nodes(
+    tree,
+    feature_names: list[str],
+    class_names: list[str],
+    max_depth: int = 3,
+) -> list[dict]:
+    """
+    Traverses a fitted DecisionTreeClassifier and returns a flat list of node
+    dicts suitable for rendering as a Plotly Treemap.
+
+    Each dict has: id, parent, label, value (sample count), class_name (majority).
+    """
+    tree_ = tree.tree_
+    nodes: list[dict] = []
+
+    def _walk(node_id: int, parent_id: str, depth: int) -> None:
+        n_samples = int(tree_.n_node_samples[node_id])
+        majority_class = class_names[int(np.argmax(tree_.value[node_id][0]))]
+        node_str_id = str(node_id)
+
+        is_leaf = tree_.feature[node_id] == -2  # sklearn sentinel
+        if is_leaf or depth >= max_depth:
+            label = f"→ {majority_class}\n({n_samples} Proben)"
+            nodes.append({
+                "id": node_str_id,
+                "parent": parent_id,
+                "label": label,
+                "value": n_samples,
+                "class_name": majority_class,
+                "is_leaf": True,
+            })
+            return
+
+        feat_name = feature_names[tree_.feature[node_id]]
+        threshold = tree_.threshold[node_id]
+        label = f"{feat_name}\n≤ {threshold:.3g}"
+        nodes.append({
+            "id": node_str_id,
+            "parent": parent_id,
+            "label": label,
+            "value": n_samples,
+            "class_name": majority_class,
+            "is_leaf": False,
+        })
+        _walk(tree_.children_left[node_id], node_str_id, depth + 1)
+        _walk(tree_.children_right[node_id], node_str_id, depth + 1)
+
+    _walk(0, "", 0)
+    return nodes
+
+
 def extract_model_explanations(
     model: Pipeline,
     X_test_features: pd.DataFrame | np.ndarray,
@@ -173,7 +224,8 @@ def extract_model_explanations(
 ) -> dict:
     """
     Extracts interpretable explanations from a trained Random Forest pipeline:
-      - Text representation of a single decision tree (limited depth)
+      - Tree node structure for Plotly Treemap visualization
+      - Text fallback representation of a single decision tree
       - Per-tree voting breakdowns for sample test instances
     """
     from sklearn.tree import export_text
@@ -199,6 +251,9 @@ def extract_model_explanations(
         max_depth=tree_max_depth,
         class_names=class_names,
     )
+
+    # --- Tree node structure for Treemap ---
+    tree_nodes = _extract_tree_nodes(representative_tree, feature_names, class_names, max_depth=tree_max_depth)
 
     # --- Voting examples ---
     X_scaled = scaler.transform(X)
@@ -229,6 +284,7 @@ def extract_model_explanations(
 
     return {
         "tree_text": tree_text,
+        "tree_nodes": tree_nodes,
         "tree_depth": tree_max_depth,
         "n_estimators": rf.n_estimators,
         "voting_examples": voting_examples,

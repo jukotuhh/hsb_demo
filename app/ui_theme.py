@@ -38,12 +38,12 @@ PLOTLY_LAYOUT = {
     "template": "plotly_white",
     "plot_bgcolor": "white",
     "paper_bgcolor": "white",
-    "font": {"family": "sans-serif", "size": 14, "color": HSB_NEUTRAL_900},
-    "title": {"font": {"color": HSB_NEUTRAL_900}},
-    "legend": {"font": {"color": HSB_NEUTRAL_900}, "title": {"font": {"color": HSB_NEUTRAL_900}}},
+    "font": {"family": "sans-serif", "size": 13, "color": HSB_NEUTRAL_900},
+    "title": {"font": {"color": HSB_NEUTRAL_900, "size": 14}},
+    "legend": {"font": {"color": HSB_NEUTRAL_900, "size": 11}, "title": {"font": {"color": HSB_NEUTRAL_900}}},
     "xaxis": {"gridcolor": HSB_NEUTRAL_200, "zerolinecolor": HSB_NEUTRAL_200},
     "yaxis": {"gridcolor": HSB_NEUTRAL_200, "zerolinecolor": HSB_NEUTRAL_200},
-    "margin": {"l": 40, "r": 20, "t": 50, "b": 40},
+    "margin": {"l": 40, "r": 15, "t": 50, "b": 40},
 }
 
 
@@ -150,6 +150,24 @@ p, li, label, [data-testid="stMarkdownContainer"] {{
     letter-spacing: 0.03em;
 }}
 
+.hsb-logo {{
+    max-height: 26px;
+    width: auto;
+    display: inline-block;
+    vertical-align: middle;
+    filter: brightness(0) invert(1);
+}}
+
+.hsb-utility-motto {{
+    display: inline-block;
+    margin-left: 0.65rem;
+    font-size: 0.75rem;
+    font-weight: 400;
+    letter-spacing: 0.04em;
+    opacity: 0.82;
+    vertical-align: middle;
+}}
+
 .page-header {{
     display: grid;
     grid-template-columns: minmax(0, 1.8fr) minmax(240px, 0.9fr);
@@ -215,8 +233,11 @@ p, li, label, [data-testid="stMarkdownContainer"] {{
 .page-title {{
     font-size: 2.15rem;
     font-weight: 700;
-    line-height: 1.1;
+    line-height: 1.15;
     margin: 0;
+    word-break: break-word;
+    overflow-wrap: break-word;
+    hyphens: auto;
 }}
 
 .page-subtitle {{
@@ -430,6 +451,10 @@ p, li, label, [data-testid="stMarkdownContainer"] {{
     margin-bottom: 0.6rem;
 }}
 
+.feature-card-shell--active {{
+    /* Visual highlight is applied via st.container border override below */
+}}
+
 .feature-card-heading {{
     margin-bottom: 0.4rem;
 }}
@@ -454,6 +479,63 @@ p, li, label, [data-testid="stMarkdownContainer"] {{
     color: var(--hsb-neutral-700);
     font-size: 0.92rem;
     line-height: 1.45;
+}}
+
+.feature-card-cta {{
+    margin-top: 0.45rem;
+    font-size: 0.8rem;
+    color: var(--hsb-neutral-700);
+    font-style: italic;
+}}
+
+.feature-card-selected-indicator {{
+    margin-top: 0.45rem;
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: var(--hsb-success);
+}}
+
+/* Checkbox styling: larger, blue accent */
+div[data-testid="stCheckbox"] label {{
+    font-weight: 700;
+    font-size: 0.95rem;
+    cursor: pointer;
+    color: var(--hsb-primary-dark) !important;
+    -webkit-text-fill-color: var(--hsb-primary-dark) !important;
+}}
+
+div[data-testid="stCheckbox"] input[type="checkbox"] {{
+    -webkit-appearance: none;
+    appearance: none;
+    width: 1.35rem;
+    height: 1.35rem;
+    min-width: 1.35rem;
+    background: white;
+    border: 2px solid var(--hsb-primary-dark);
+    border-radius: 4px;
+    cursor: pointer;
+    position: relative;
+    vertical-align: middle;
+    transition: background 0.15s, border-color 0.15s;
+}}
+
+div[data-testid="stCheckbox"] input[type="checkbox"]:checked {{
+    background: var(--hsb-primary);
+    border-color: var(--hsb-primary);
+}}
+
+div[data-testid="stCheckbox"] input[type="checkbox"]:checked::after {{
+    content: "";
+    display: block;
+    position: absolute;
+    top: 1px;
+    left: 4px;
+    width: 5px;
+    height: 10px;
+    border: 2.5px solid white;
+    border-top: none;
+    border-left: none;
+    transform: rotate(45deg);
 }}
 
 .leaderboard-list {{
@@ -664,13 +746,59 @@ div[data-testid="stMetric"] {{
 }}
 
 details {{
-    border: 1px solid var(--hsb-neutral-200);
+    border: 2px solid var(--hsb-primary) !important;
     border-radius: 12px;
-    background: white;
+    background: white !important;
 }}
 
 details summary {{
     font-weight: 700;
+    color: var(--hsb-primary) !important;
+    -webkit-text-fill-color: var(--hsb-primary) !important;
+    background: white !important;
+    border-left: 3px solid var(--hsb-primary);
+    padding-left: 0.6rem;
+    border-radius: 10px 10px 0 0;
+}}
+
+details summary:hover {{
+    color: var(--hsb-primary-light) !important;
+    -webkit-text-fill-color: var(--hsb-primary-light) !important;
+}}
+
+details[open] summary {{
+    border-bottom: 1px solid var(--hsb-neutral-100);
+    margin-bottom: 0.5rem;
+    border-radius: 10px 10px 0 0;
+}}
+
+details summary > * {{
+    color: var(--hsb-primary) !important;
+    -webkit-text-fill-color: var(--hsb-primary) !important;
+}}
+
+details summary p {{
+    color: var(--hsb-primary) !important;
+    -webkit-text-fill-color: var(--hsb-primary) !important;
+}}
+
+/* Ensure expander inner content is always dark-on-white */
+details > div,
+details > section,
+[data-testid="stExpanderDetails"] {{
+    background: white !important;
+    color: var(--hsb-neutral-900) !important;
+}}
+
+/* Fix st.code dark blocks inside expanders */
+details pre,
+details code,
+[data-testid="stExpanderDetails"] pre,
+[data-testid="stExpanderDetails"] code {{
+    background: var(--hsb-neutral-50) !important;
+    color: var(--hsb-neutral-900) !important;
+    border: 1px solid var(--hsb-neutral-200);
+    border-radius: 8px;
 }}
 
 /* Hard override for Plotly text contrast (axes, labels, legend). */
@@ -698,11 +826,58 @@ details summary {{
         padding-top: 1rem;
     }}
     .leaderboard-row {{
-        grid-template-columns: 1fr;
-        gap: 0.35rem;
+        grid-template-columns: 48px 1fr !important;
+        gap: 0.4rem 0.6rem;
+    }}
+    .leaderboard-row > *:nth-child(n+3) {{
+        grid-column: 2;
     }}
     .page-title {{
-        font-size: 1.75rem;
+        font-size: 1.6rem;
+    }}
+    .ui-metric-grid {{
+        grid-template-columns: 1fr 1fr;
+    }}
+}}
+
+@media (max-width: 600px) {{
+    .page-title {{
+        font-size: 1.25rem;
+    }}
+    .block-container {{
+        padding-left: 0.5rem !important;
+        padding-right: 0.5rem !important;
+    }}
+    .ui-metric-grid {{
+        grid-template-columns: 1fr;
+    }}
+    .leaderboard-row {{
+        grid-template-columns: 1fr !important;
+        gap: 0.25rem;
+    }}
+    /* Reduce Plotly chart font sizes on small screens */
+    .js-plotly-plot .plotly .xtick text,
+    .js-plotly-plot .plotly .ytick text {{
+        font-size: 9px !important;
+    }}
+    .js-plotly-plot .plotly .gtitle {{
+        font-size: 11px !important;
+    }}
+    .js-plotly-plot .plotly .g-xtitle text,
+    .js-plotly-plot .plotly .g-ytitle text {{
+        font-size: 10px !important;
+    }}
+    /* Hide modebar on touch devices */
+    .js-plotly-plot .plotly .modebar {{
+        display: none !important;
+    }}
+    /* Reduce padding in expanders */
+    details summary {{
+        font-size: 0.95rem;
+    }}
+    /* Utility-bar: hide motto on very small screens */
+    .hsb-utility-motto {{
+        display: none;
     }}
 }}
 
@@ -723,7 +898,7 @@ def render_page_header(
     title: str,
     subtitle: str = "",
     eyebrow: str = "Hochschule Bremen",
-    tagline: str = "Science for the real World",
+    tagline: str = "",
     side_label: str = "Quicklinks",
     side_title: str = "",
     side_copy: str = "",
@@ -732,7 +907,6 @@ def render_page_header(
     utility_context: str = "",
 ) -> str:
     subtitle_html = f'<div class="page-subtitle">{escape(subtitle)}</div>' if subtitle else ""
-    tagline_html = f'<div class="page-tagline">{escape(tagline)}</div>' if tagline else ""
     side_items_html = ""
     if side_items:
         side_items_html = '<div class="page-side-list">' + "".join(
@@ -747,17 +921,23 @@ def render_page_header(
     utility_context_html = (
         f'<div class="hsb-utility-context">{escape(utility_context)}</div>' if utility_context else ""
     )
+    _HSB_LOGO_URL = "https://upload.wikimedia.org/wikipedia/commons/f/fd/Logo_HSB_Hochschule_Bremen.png"
     return (
         '<section class="hsb-site-header">'
         '<div class="hsb-utility-bar">'
-        '<div class="hsb-utility-brand">HSB Hochschule Bremen</div>'
+        '<div class="hsb-utility-brand">'
+        f'<img src="{_HSB_LOGO_URL}" alt="HSB Hochschule Bremen" '
+        'class="hsb-logo" onerror="this.style.display=\'none\';this.nextSibling.style.display=\'inline\'">'
+        '<span class="hsb-logo-fallback" style="display:none">HSB Hochschule Bremen</span>'
+        '<span class="hsb-utility-motto">Science for the real World</span>'
+        '</div>'
         f"{utility_context_html}"
         "</div>"
         f'<section class="{header_class}">'
         '<div class="page-header-main">'
         f'<div class="page-eyebrow">{escape(eyebrow)}</div>'
         f'<h1 class="page-title">{escape(title)}</h1>'
-        f"{subtitle_html}{tagline_html}"
+        f"{subtitle_html}"
         "</div>"
         '<aside class="page-header-side">'
         f'<div class="page-side-label">{escape(side_label)}</div>'
@@ -813,13 +993,13 @@ def render_tag_list(values: list[str], variant: str = "neutral") -> str:
 
 def render_phase_badge(phase: str) -> str:
     phase_labels = {
-        "registration": "Registrierung",
-        "feature_selection": "Feature-Auswahl",
-        "training": "Training",
-        "results": "Ergebnisse",
+        "registration": "📋 Registrierung",
+        "feature_selection": "🔬 Phase 1: Feature-Auswahl",
+        "training": "⚙️ Phase 2: Training",
+        "results": "🏆 Phase 3: Ergebnisse",
     }
     label = phase_labels.get(phase, phase.replace("_", " ").title())
-    return f'<span class="ui-badge ui-badge-phase">{escape(label)}</span>'
+    return f'<span class="ui-badge ui-badge-phase">{label}</span>'
 
 
 def render_status_badge(submitted: bool) -> str:
@@ -829,6 +1009,12 @@ def render_status_badge(submitted: bool) -> str:
 
 
 def render_rank_label(rank: int) -> str:
+    if rank == 1:
+        return "🏆"
+    if rank == 2:
+        return "🥈"
+    if rank == 3:
+        return "🥉"
     return str(rank)
 
 
