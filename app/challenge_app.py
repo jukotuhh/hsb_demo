@@ -474,39 +474,9 @@ if is_admin:
 
     with col_control:
         st.markdown(render_panel("Challenge-Status", phase_panel_body, tone="accent"), unsafe_allow_html=True)
-        st.markdown(
-            render_panel(
-                "Phase manuell steuern",
-                '<p class="ui-panel-copy">Optional fuer die Projektoransicht. Teams koennen den Ablauf selbst steuern.</p>',
-                tone="muted",
-            ),
-            unsafe_allow_html=True,
-        )
-
-        phase_labels = {
-            "registration": "Registrierung",
-            "feature_selection": "Feature-Auswahl",
-            "training": "Training",
-            "results": "Ergebnisse",
-        }
-        phase_order = list(phase_labels.keys())
-        if st.session_state.get("admin_phase_select") != current_phase:
-            # Sync selectbox with real server state to avoid stale UI.
-            st.session_state["admin_phase_select"] = current_phase
-        selected_phase = st.selectbox(
-            "Zielphase",
-            phase_order,
-            format_func=lambda key: phase_labels[key],
-            key="admin_phase_select",
-        )
-
         def _set_phase_and_rerun(target_phase: str):
             challenge_state.set_phase(target_phase)
-            st.session_state["admin_phase_select"] = target_phase
             st.rerun()
-
-        if st.button("Ausgewaehlte Phase setzen", width="stretch", key="admin_set_phase"):
-            _set_phase_and_rerun(selected_phase)
 
         if current_phase == "registration":
             if st.button("Feature-Auswahl freigeben", type="primary", width="stretch"):
@@ -547,17 +517,16 @@ if is_admin:
                 ),
                 unsafe_allow_html=True,
             )
-            team_list = "".join(
-                f"<li>{escape(team['name'])}</li>"
-                for team in sorted(teams.values(), key=lambda item: item["name"].lower())
-            )
-            st.markdown(
-                render_panel(
-                    "Teamliste",
-                    f'<ol class="ui-panel-copy" style="margin:0; padding-left:1.1rem;">{team_list}</ol>',
-                ),
-                unsafe_allow_html=True,
-            )
+            st.markdown(render_section_heading("Teamliste", "Teams koennen hier einzeln geloescht werden."), unsafe_allow_html=True)
+            for tid, t in sorted(teams.items(), key=lambda kv: kv[1]["name"].lower()):
+                col_name, col_btn = st.columns([4, 1])
+                col_name.markdown(
+                    f'<div style="padding:0.6rem 0;font-weight:600;">{escape(t["name"])}</div>',
+                    unsafe_allow_html=True,
+                )
+                if col_btn.button("Löschen", key=f"del_team_{tid}"):
+                    challenge_state.delete_team(tid)
+                    st.rerun()
         else:
             render_message_panel("Warten auf Teams", "Sobald Teams registriert sind, erscheinen sie hier automatisch.", tone="muted")
 

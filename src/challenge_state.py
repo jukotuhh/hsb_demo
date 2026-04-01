@@ -483,6 +483,23 @@ def get_leaderboard() -> list[dict]:
     return entries
 
 
+def delete_team(team_id: str):
+    """
+    Loescht ein einzelnes Team und sein Ergebnis aus dem State.
+
+    Raises:
+        ValueError: Wenn Team nicht gefunden.
+    """
+    with _STATE_LOCK:
+        if team_id not in _STATE["teams"]:
+            raise ValueError(f"Team-ID nicht gefunden: {team_id}")
+        team_name = _STATE["teams"][team_id]["name"]
+        del _STATE["teams"][team_id]
+        _STATE["results"].pop(team_id, None)
+        _save_state_to_disk()
+    print(f"✓ Team geloescht: {team_name} (ID: {team_id})")
+
+
 def get_team_result(team_id: str) -> dict | None:
     """Gibt das Ergebnis eines Teams zurück oder None."""
     with _STATE_LOCK:
