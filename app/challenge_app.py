@@ -1064,6 +1064,12 @@ if team_id:
                     ),
                     unsafe_allow_html=True,
                 )
+                st.caption(
+                    "💡 **PCA** (Principal Component Analysis) komprimiert alle 11 Features "
+                    "in zwei Achsen (PC1, PC2), die möglichst viel Unterschied zwischen den "
+                    "Datenpunkten erhalten. Wenn sich die Klassen hier schon als getrennte "
+                    "Wolken zeigen, lassen sie sich gut unterscheiden."
+                )
                 pca_df, explained = get_feature_projection()
                 fig_pca = go.Figure()
                 for class_name in CLASS_NAMES:
@@ -1074,12 +1080,16 @@ if team_id:
                             y=class_points["pc2"],
                             mode="markers",
                             name=class_name,
-                            marker=dict(size=7, opacity=0.65),
+                            marker=dict(
+                                size=7,
+                                opacity=0.65,
+                                color=get_class_color(class_name),
+                            ),
                         )
                     )
                 fig_pca.update_layout(
                     **get_plotly_layout(
-                        title=f"PCA (Gesamt) - Varianz: PC1 {explained[0]*100:.1f}%, PC2 {explained[1]*100:.1f}%",
+                        title=f"PCA (Gesamt) — Varianz: PC1 {explained[0]*100:.1f}%, PC2 {explained[1]*100:.1f}%",
                         xaxis_title="PC1",
                         yaxis_title="PC2",
                         height=460,
