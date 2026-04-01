@@ -232,40 +232,42 @@ def plot_signal_and_fft(signal, title="", color=HSB_PRIMARY, fs=12000):
     return fig
 
 
+_CM_SHORT_NAMES = ["Normal", "IR", "OR", "Kugel"]
+
+
 def plot_confusion_matrix(cm, title="Konfusionsmatrix"):
-    """Plottet die Konfusionsmatrix."""
+    """Plottet die Konfusionsmatrix (mobile-optimiert)."""
     cm_array = np.asarray(cm, dtype=float)
     row_sums = cm_array.sum(axis=1, keepdims=True)
     row_sums[row_sums == 0] = 1.0
     cm_percent = (cm_array / row_sums) * 100.0
     cm_text = [
-        [f"{int(cm_array[r, c])}<br>({cm_percent[r, c]:.1f}%)" for c in range(cm_array.shape[1])]
+        [f"{int(cm_array[r, c])}<br>{cm_percent[r, c]:.0f}%" for c in range(cm_array.shape[1])]
         for r in range(cm_array.shape[0])
     ]
     fig = go.Figure(data=go.Heatmap(
-        z=cm_percent, x=CLASS_NAMES, y=CLASS_NAMES,
+        z=cm_percent, x=_CM_SHORT_NAMES, y=_CM_SHORT_NAMES,
         text=cm_text, texttemplate="%{text}",
-        textfont={"size": 13},
+        textfont={"size": 15},
         colorscale=[[0.0, "#F8F9FA"], [0.5, "#0077C8"], [1.0, "#003D66"]],
-        showscale=True,
+        showscale=False,
         zmin=0,
         zmax=100,
-        colorbar=dict(title="Anteil (%)"),
     ))
     fig.update_layout(
         **get_plotly_layout(
             title=title,
-            xaxis_title="Vorhersage",
-            yaxis_title="Wahrheit",
-            height=400,
+            height=370,
+            margin=dict(l=50, r=10, t=50, b=50),
             xaxis=dict(
-                title=dict(text="Vorhersage", font=dict(color="#212529")),
-                tickfont=dict(color="#212529"),
+                title=dict(text="Vorhersage", font=dict(color="#212529", size=13)),
+                tickfont=dict(color="#212529", size=13),
+                side="bottom",
             ),
             yaxis=dict(
                 autorange="reversed",
-                title=dict(text="Wahrheit", font=dict(color="#212529")),
-                tickfont=dict(color="#212529"),
+                title=dict(text="Wahrheit", font=dict(color="#212529", size=13)),
+                tickfont=dict(color="#212529", size=13),
             ),
         )
     )
@@ -959,7 +961,7 @@ if team_id:
                     f"{selected_class} (Gesamt)",
                     color,
                 )
-                st.plotly_chart(fig_explore, use_container_width=True)
+                st.plotly_chart(fig_explore, width="stretch")
 
                 with st.expander("Featurewerte fuer dieses Segment", expanded=False):
                     segment_features = extract_all_features(signal.reshape(1, -1)).iloc[0]
@@ -994,17 +996,27 @@ if team_id:
                             y=class_values,
                             name=class_name,
                             boxmean=True,
+                            marker_color=CHART_COLORS.get(class_name, HSB_PRIMARY),
+                            line_color=CHART_COLORS.get(class_name, HSB_PRIMARY),
                         )
                     )
                 fig_feature.update_layout(
                     **get_plotly_layout(
-                        title=f"{feature_to_compare} nach Klasse (Gesamt)",
+                        title=f"{feature_to_compare} nach Klasse",
                         yaxis_title=feature_to_compare,
-                        xaxis_title="Klasse",
                         height=430,
+                        showlegend=True,
+                        legend=dict(
+                            orientation="h",
+                            yanchor="bottom",
+                            y=1.02,
+                            xanchor="center",
+                            x=0.5,
+                            font=dict(size=13),
+                        ),
                     )
                 )
-                st.plotly_chart(fig_feature, use_container_width=True)
+                st.plotly_chart(fig_feature, width="stretch")
 
                 st.markdown(
                     render_section_heading(
@@ -1015,31 +1027,28 @@ if team_id:
                 )
                 _mpl_colors = {cn: CHART_COLORS.get(cn, HSB_PRIMARY) for cn in CLASS_NAMES}
                 _n_feat = len(FEATURE_NAMES)
-                _hist_cols = 2
-                _hist_rows = int(np.ceil(_n_feat / _hist_cols))
                 fig_mpl, axes = plt.subplots(
-                    _hist_rows, _hist_cols,
-                    figsize=(7, 2.6 * _hist_rows),
-                    constrained_layout=True,
+                    _n_feat, 1,
+                    figsize=(6, 2.4 * _n_feat),
                 )
-                axes_flat = axes.flatten()
                 for feat_idx, feature_name in enumerate(FEATURE_NAMES):
-                    ax = axes_flat[feat_idx]
+                    ax = axes[feat_idx]
                     for class_name in CLASS_NAMES:
                         vals = feature_df.loc[
                             feature_df["class_name"] == class_name,
                             feature_name,
                         ].values
-                        ax.hist(vals, bins=30, alpha=0.45, label=class_name,
+                        ax.hist(vals, bins=30, alpha=0.5, label=class_name,
                                 color=_mpl_colors[class_name])
-                    ax.set_title(feature_name, fontsize=10, fontweight="bold")
-                    ax.tick_params(labelsize=8)
-                for idx in range(_n_feat, len(axes_flat)):
-                    axes_flat[idx].set_visible(False)
-                handles, labels = axes_flat[0].get_legend_handles_labels()
-                fig_mpl.legend(handles, labels, loc="lower center",
-                               ncol=len(CLASS_NAMES), fontsize=8,
-                               frameon=True, bbox_to_anchor=(0.5, -0.01))
+                    ax.set_title(feature_name, fontsize=11, fontweight="bold",
+                                 pad=6)
+                    ax.tick_params(labelsize=9)
+                handles, labels = axes[0].get_legend_handles_labels()
+                fig_mpl.legend(handles, labels, loc="upper center",
+                               ncol=len(CLASS_NAMES), fontsize=10,
+                               frameon=True, bbox_to_anchor=(0.5, 1.0),
+                               edgecolor="#D8E0E8", fancybox=True)
+                fig_mpl.tight_layout(rect=[0, 0, 1, 0.98])
                 st.pyplot(fig_mpl)
                 plt.close(fig_mpl)
 
@@ -1071,7 +1080,7 @@ if team_id:
                         height=460,
                     )
                 )
-                st.plotly_chart(fig_pca, use_container_width=True)
+                st.plotly_chart(fig_pca, width="stretch")
 
             # ----------------------------------------------------------
             # Schritt 2: Features auswaehlen
@@ -1317,84 +1326,10 @@ if team_id:
                     unsafe_allow_html=True,
                 )
 
-            # --- Model explanation: tree + voting ---
+            # --- Model explanation: voting ---
             with st.expander("So entscheidet Ihr Modell", expanded=True):
-                tree_text = result.get("tree_text", "")
-                tree_nodes = result.get("tree_nodes", [])
                 voting_examples = result.get("voting_examples", [])
                 n_estimators = result.get("n_estimators", 100)
-
-                if tree_nodes or tree_text:
-                    st.markdown(
-                        render_panel(
-                            "Ein Entscheidungsbaum aus dem Wald",
-                            (
-                                '<p class="ui-panel-copy">'
-                                f"Ihr Random Forest besteht aus {n_estimators} Entscheidungsbaeumen. "
-                                "Jeder Baum stellt Fragen zu Ihren gewaehlten Features und leitet daraus eine "
-                                "Klasse ab. Die Kacheln unten zeigen <strong>einen</strong> dieser Baeume "
-                                "(Tiefe 3): Groessere Kacheln enthalten mehr Datenpunkte."
-                                "</p>"
-                            ),
-                            tone="muted",
-                        ),
-                        unsafe_allow_html=True,
-                    )
-
-                if tree_nodes:
-                    _CLASS_COLORS_TREEMAP = {
-                        "Normal": "#2F7D4A",
-                        "Innenring (IR)": "#A13A38",
-                        "Außenring (OR)": HSB_PRIMARY,
-                        "Kugel (B)": "#B88119",
-                    }
-                    node_ids = [n["id"] for n in tree_nodes]
-                    node_parents = [n["parent"] for n in tree_nodes]
-                    node_labels = [n["label"] for n in tree_nodes]
-                    node_values = [max(1, n["value"]) for n in tree_nodes]
-                    node_colors = [_CLASS_COLORS_TREEMAP.get(n["class_name"], HSB_PRIMARY) for n in tree_nodes]
-                    node_text = [
-                        f"Klasse: {n['class_name']}<br>Proben: {n['value']}"
-                        for n in tree_nodes
-                    ]
-                    fig_tree = go.Figure(go.Treemap(
-                        ids=node_ids,
-                        labels=node_labels,
-                        parents=node_parents,
-                        values=node_values,
-                        customdata=node_text,
-                        hovertemplate="%{customdata}<extra></extra>",
-                        marker=dict(colors=node_colors, line=dict(width=1.5, color="white")),
-                        textfont=dict(color="white", size=11),
-                        branchvalues="total",
-                    ))
-                    fig_tree.update_layout(
-                        **get_plotly_layout(
-                            title="",
-                            height=400,
-                            margin=dict(l=10, r=10, t=10, b=10),
-                        )
-                    )
-                    st.plotly_chart(fig_tree, use_container_width=True)
-                    st.markdown(
-                        render_panel(
-                            "",
-                            (
-                                '<p class="ui-panel-copy">'
-                                "<strong>Farbe</strong> = vorhergesagte Klasse der Knoten. "
-                                "<strong>Groesse</strong> = Anzahl Datenpunkte. "
-                                "Jeder Knoten zeigt das Merkmal, nach dem gespalten wird. "
-                                "Am Ende jedes Pfades steht die Klassenzuordnung."
-                                "</p>"
-                            ),
-                            tone="muted",
-                        ),
-                        unsafe_allow_html=True,
-                    )
-                    with st.expander("Textdarstellung des Baums", expanded=False):
-                        st.code(tree_text, language=None)
-                elif tree_text:
-                    st.code(tree_text, language=None)
 
                 if voting_examples:
                     st.markdown(
@@ -1411,48 +1346,45 @@ if team_id:
                         ),
                         unsafe_allow_html=True,
                     )
-                    vote_cols = st.columns(len(voting_examples))
-                    for col, example in zip(vote_cols, voting_examples):
-                        with col:
-                            is_correct = example["type"] == "correct"
-                            icon = "&#10004;" if is_correct else "&#10008;"
-                            label = "Korrekt klassifiziert" if is_correct else "Fehlklassifiziert"
-                            vote_class_names = example.get("class_names", CLASS_NAMES)
-                            vote_counts = example["vote_counts"]
-                            total_votes = sum(vote_counts)
+                    for example in voting_examples:
+                        is_correct = example["type"] == "correct"
+                        icon = "&#10004;" if is_correct else "&#10008;"
+                        label = "Korrekt klassifiziert" if is_correct else "Fehlklassifiziert"
+                        vote_class_names = example.get("class_names", CLASS_NAMES)
+                        vote_counts = example["vote_counts"]
 
-                            bar_colors = [
-                                "#2F7D4A" if cn == example["true_class"] else
-                                "#A13A38" if cn == example["predicted_class"] and not is_correct else
-                                HSB_PRIMARY
-                                for cn in vote_class_names
-                            ]
-                            fig_vote = go.Figure(go.Bar(
-                                x=vote_class_names,
-                                y=vote_counts,
-                                marker_color=bar_colors,
-                                text=[f"{v}" for v in vote_counts],
-                                textposition="auto",
-                            ))
-                            fig_vote.update_layout(
-                                **get_plotly_layout(
-                                    title=f"{icon} {label}",
-                                    yaxis_title="Stimmen",
-                                    xaxis_title="",
-                                    height=300,
-                                    margin=dict(l=40, r=20, t=50, b=40),
-                                )
+                        bar_colors = [
+                            "#2F7D4A" if cn == example["true_class"] else
+                            "#A13A38" if cn == example["predicted_class"] and not is_correct else
+                            HSB_PRIMARY
+                            for cn in vote_class_names
+                        ]
+                        fig_vote = go.Figure(go.Bar(
+                            x=_CM_SHORT_NAMES,
+                            y=vote_counts,
+                            marker_color=bar_colors,
+                            text=[f"{v}" for v in vote_counts],
+                            textposition="auto",
+                        ))
+                        fig_vote.update_layout(
+                            **get_plotly_layout(
+                                title=f"{icon} {label}",
+                                yaxis_title="Stimmen",
+                                xaxis_title="",
+                                height=300,
+                                margin=dict(l=40, r=20, t=50, b=40),
                             )
-                            st.plotly_chart(fig_vote, use_container_width=True)
-                            st.markdown(
-                                f'<p style="text-align:center;font-size:0.88rem;color:#495057;">'
-                                f'Wahrheit: <strong>{escape(example["true_class"])}</strong> &nbsp;|&nbsp; '
-                                f'Vorhersage: <strong>{escape(example["predicted_class"])}</strong>'
-                                f"</p>",
-                                unsafe_allow_html=True,
-                            )
+                        )
+                        st.plotly_chart(fig_vote, width="stretch")
+                        st.markdown(
+                            f'<p style="text-align:center;font-size:0.88rem;color:#495057;">'
+                            f'Wahrheit: <strong>{escape(example["true_class"])}</strong> &nbsp;|&nbsp; '
+                            f'Vorhersage: <strong>{escape(example["predicted_class"])}</strong>'
+                            f"</p>",
+                            unsafe_allow_html=True,
+                        )
 
-                if not tree_text and not voting_examples:
+                if not voting_examples:
                     render_message_panel(
                         "Nicht verfuegbar",
                         "Die Modellerklaerung ist fuer dieses Ergebnis nicht verfuegbar. "
@@ -1463,7 +1395,7 @@ if team_id:
             # --- Confusion matrix with interpretive guidance ---
             with st.expander("Konfusionsmatrix", expanded=True):
                 fig_cm = plot_confusion_matrix(result["confusion_matrix"])
-                st.plotly_chart(fig_cm, use_container_width=True)
+                st.plotly_chart(fig_cm, width="stretch")
 
                 cm_array = np.asarray(result["confusion_matrix"], dtype=float)
                 row_sums = cm_array.sum(axis=1)
@@ -1512,7 +1444,7 @@ if team_id:
                     result["feature_names"],
                     f"Feature Importances — {team['name']}"
                 )
-                st.plotly_chart(fig_fi, use_container_width=True)
+                st.plotly_chart(fig_fi, width="stretch")
 
                 importances = np.asarray(result["feature_importances"], dtype=float)
                 feat_names = np.asarray(result["feature_names"])

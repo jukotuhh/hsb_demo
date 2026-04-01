@@ -231,7 +231,7 @@ p, li, label, [data-testid="stMarkdownContainer"] {{
 }}
 
 .page-title {{
-    font-size: 2.15rem;
+    font-size: clamp(1.05rem, 4.5vw, 2.15rem);
     font-weight: 700;
     line-height: 1.15;
     margin: 0;
@@ -711,6 +711,12 @@ div[data-baseweb="select"] input {{
     -webkit-text-fill-color: var(--hsb-neutral-900) !important;
 }}
 
+/* Dropdown-Pfeil (Arrow-Icon) sichtbar halten */
+div[data-baseweb="select"] svg {{
+    fill: var(--hsb-neutral-700) !important;
+    color: var(--hsb-neutral-700) !important;
+}}
+
 ul[role="listbox"] li,
 ul[role="listbox"] div {{
     color: var(--hsb-neutral-900) !important;
@@ -817,7 +823,7 @@ details code,
 
 @media (max-width: 900px) {{
     .page-header {{
-        grid-template-columns: 1fr;
+        grid-template-columns: 1fr !important;
     }}
     .page-header-side {{
         border-left: 0;
@@ -833,7 +839,7 @@ details code,
         grid-column: 2;
     }}
     .page-title {{
-        font-size: 1.6rem;
+        font-size: 1.5rem;
     }}
     .ui-metric-grid {{
         grid-template-columns: 1fr 1fr;
@@ -842,7 +848,14 @@ details code,
 
 @media (max-width: 600px) {{
     .page-title {{
-        font-size: 1.25rem;
+        font-size: 1.15rem;
+    }}
+    .page-header {{
+        grid-template-columns: 1fr !important;
+        padding: 1rem 0.75rem !important;
+    }}
+    .page-header-side {{
+        display: none !important;
     }}
     .block-container {{
         padding-left: 0.5rem !important;
@@ -878,6 +891,21 @@ details code,
     /* Utility-bar: hide motto on very small screens */
     .hsb-utility-motto {{
         display: none;
+    }}
+}}
+
+@media (max-width: 400px) {{
+    .page-title {{
+        font-size: 1.05rem;
+    }}
+    .page-header {{
+        padding: 0.75rem 0.6rem !important;
+    }}
+    .page-eyebrow {{
+        font-size: 0.65rem;
+    }}
+    .page-subtitle {{
+        font-size: 0.85rem;
     }}
 }}
 

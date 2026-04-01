@@ -219,7 +219,7 @@ def extract_model_explanations(
     X_test_features: pd.DataFrame | np.ndarray,
     y_test: np.ndarray,
     class_names: list[str] | None = None,
-    tree_max_depth: int = 3,
+    tree_max_depth: int = 2,
     n_voting_examples: int = 2,
 ) -> dict:
     """
