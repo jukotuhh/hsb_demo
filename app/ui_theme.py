@@ -964,7 +964,7 @@ def render_page_header(
         f'<section class="{header_class}">'
         '<div class="page-header-main">'
         f'<div class="page-eyebrow">{escape(eyebrow)}</div>'
-        f'<h1 class="page-title">{escape(title)}</h1>'
+        f'<h1 class="page-title" lang="de">{escape(title)}</h1>'
         f"{subtitle_html}"
         "</div>"
         '<aside class="page-header-side">'
